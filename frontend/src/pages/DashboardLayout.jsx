@@ -2,12 +2,14 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, Calendar, FileSpreadsheet, Wallet, Megaphone,
-  Bot, MessageSquareText, Sparkles, LogOut, Bell, Search, Menu, X
+  Bot, MessageSquareText, Sparkles, LogOut, Bell, Search, Menu, X, GraduationCap, School
 } from "lucide-react";
 import { useState } from "react";
 
 const ALL_ITEMS = [
   { to: "/app",                   label: "Dashboard",          icon: LayoutDashboard, roles: ["super_admin","school_admin","teacher","student","parent"], end: true },
+  { to: "/app/teachers",          label: "Teachers",           icon: GraduationCap,   roles: ["super_admin","school_admin"] },
+  { to: "/app/classes",           label: "Classes",            icon: School,          roles: ["super_admin","school_admin"] },
   { to: "/app/students",          label: "Students",           icon: Users,           roles: ["super_admin","school_admin","teacher","parent"] },
   { to: "/app/attendance",        label: "Attendance",         icon: Calendar,        roles: ["super_admin","school_admin","teacher","student","parent"] },
   { to: "/app/exams",             label: "Exams & Marks",      icon: FileSpreadsheet, roles: ["super_admin","school_admin","teacher","student","parent"] },

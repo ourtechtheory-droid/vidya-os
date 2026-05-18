@@ -9,6 +9,8 @@ import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import DashboardLayout from "@/pages/DashboardLayout";
 import Dashboard from "@/pages/Dashboard";
+import Teachers from "@/pages/Teachers";
+import Classes from "@/pages/Classes";
 import Students from "@/pages/Students";
 import StudentProfile from "@/pages/StudentProfile";
 import Attendance from "@/pages/Attendance";
@@ -33,6 +35,8 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/app" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
+        <Route path="teachers" element={<Teachers />} />
+        <Route path="classes" element={<Classes />} />
         <Route path="students" element={<Students />} />
         <Route path="students/:id" element={<StudentProfile />} />
         <Route path="attendance" element={<Attendance />} />

@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, jwt, bcrypt
+import os, logging, uuid, jwt, bcrypt, secrets, string, re
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Literal, Dict, Any
@@ -75,7 +75,7 @@ class StudentCreate(BaseModel):
     name: str
     roll_no: str
     class_id: str
-    section: str
+    section: Optional[str] = ""
     gender: Literal["M", "F", "O"] = "M"
     dob: Optional[str] = None
     parent_email: Optional[EmailStr] = None
@@ -83,6 +83,21 @@ class StudentCreate(BaseModel):
     address: Optional[str] = None
     house: Optional[str] = None
     category: Optional[str] = None
+
+
+class ClassCreate(BaseModel):
+    grade: str
+    section: Optional[str] = ""
+    name: Optional[str] = None
+
+
+class TeacherCreate(BaseModel):
+    name: str
+    phone_number: str
+    gender: Literal["M", "F", "O"] = "M"
+    assigned_class_id: str
+    core_subject: str
+    profile_image: Optional[str] = None
 
 
 class AttendanceMark(BaseModel):
@@ -190,6 +205,65 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _temp_password(length: int = 10) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _slug(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", ".", text.lower()).strip(".")
+    return cleaned or "teacher"
+
+
+async def _teacher_profile_for_user(user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if user.get("role") != "teacher":
+        return None
+    profile = await db.teacher_profiles.find_one({"user_id": user["id"]}, {"_id": 0})
+    if profile:
+        return profile
+    meta = user.get("meta") or {}
+    if meta.get("assigned_class_id"):
+        return {
+            "user_id": user["id"],
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "assigned_class_id": meta.get("assigned_class_id"),
+            "core_subject": meta.get("core_subject"),
+            "profile_image": user.get("avatar"),
+        }
+    return None
+
+
+async def _ensure_demo_teacher_profile():
+    teacher = await db.users.find_one({"email": "teacher@aischool.io"}, {"_id": 0})
+    klass = await db.classes.find_one({"id": "cls-9A"}, {"_id": 0})
+    if not teacher or not klass:
+        return
+    existing = await db.teacher_profiles.find_one({"user_id": teacher["id"]}, {"_id": 0})
+    if existing:
+        return
+    meta = {
+        "assigned_class_id": "cls-9A",
+        "phone_number": "+91-9000000001",
+        "gender": "M",
+        "core_subject": "Mathematics",
+    }
+    await db.users.update_one({"id": teacher["id"]}, {"$set": {"meta": meta}})
+    await db.teacher_profiles.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": teacher["id"],
+        "email": teacher["email"],
+        "name": teacher["name"],
+        "phone_number": meta["phone_number"],
+        "gender": meta["gender"],
+        "assigned_class_id": meta["assigned_class_id"],
+        "core_subject": meta["core_subject"],
+        "profile_image": teacher.get("avatar"),
+        "created_by": teacher["id"],
+        "created_at": now_iso(),
+    })
+
+
 # =========================================================
 # AI helper
 # =========================================================
@@ -258,14 +332,124 @@ async def me(user=Depends(get_current_user)):
 # =========================================================
 @api.get("/classes")
 async def list_classes(user=Depends(get_current_user)):
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        return await db.classes.find({"id": profile.get("assigned_class_id", "")}, {"_id": 0}).to_list(1)
     return await db.classes.find({}, {"_id": 0}).to_list(500)
 
 
+@api.post("/classes")
+async def create_class(body: ClassCreate, user=Depends(require_roles("super_admin", "school_admin"))):
+    grade = body.grade.strip()
+    section = (body.section or "").strip().upper()
+    if not grade:
+        raise HTTPException(400, "Class grade is required")
+    class_id = f"cls-{re.sub(r'[^A-Za-z0-9]+', '', grade)}{section}"
+    existing = await db.classes.find_one({"id": class_id}, {"_id": 0})
+    if existing:
+        raise HTTPException(400, "Class already exists")
+    c = {
+        "id": class_id,
+        "name": body.name or (f"Class {grade}-{section}" if section else f"Class {grade}"),
+        "grade": grade,
+        "section": section,
+        "school_id": user.get("school_id", "default-school"),
+        "created_at": now_iso(),
+    }
+    await db.classes.insert_one(c)
+    return {k: v for k, v in c.items() if k != "_id"}
+
+
+@api.get("/teachers")
+async def list_teachers(user=Depends(require_roles("super_admin", "school_admin"))):
+    teachers = await db.teacher_profiles.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    classes = {c["id"]: c for c in await db.classes.find({}, {"_id": 0}).to_list(500)}
+    out = []
+    for t in teachers:
+        class_id = t.get("assigned_class_id")
+        students_count = await db.students.count_documents({"class_id": class_id})
+        attendance = await db.attendance.find({"class_id": class_id}, {"_id": 0}).to_list(5000)
+        total = len(attendance)
+        present = sum(1 for a in attendance if a.get("status") == "present")
+        out.append({
+            **t,
+            "assigned_class": classes.get(class_id),
+            "students_count": students_count,
+            "attendance_pct": round((present / total) * 100, 1) if total else 0,
+            "attendance_total": total,
+        })
+    return out
+
+
+@api.post("/teachers")
+async def create_teacher(body: TeacherCreate, user=Depends(require_roles("super_admin", "school_admin"))):
+    assigned_class = await db.classes.find_one({"id": body.assigned_class_id}, {"_id": 0})
+    if not assigned_class:
+        raise HTTPException(404, "Assigned class not found")
+
+    base = _slug(body.name)
+    domain = "vidyaos.teacher"
+    email = f"{base}@{domain}"
+    n = 2
+    while await db.users.find_one({"email": email}, {"_id": 0}):
+        email = f"{base}{n}@{domain}"
+        n += 1
+
+    password = _temp_password()
+    user_id = str(uuid.uuid4())
+    teacher_user = {
+        "id": user_id,
+        "email": email,
+        "password": _hash_pwd(password),
+        "name": body.name,
+        "role": "teacher",
+        "school_id": user.get("school_id", "default-school"),
+        "avatar": body.profile_image,
+        "meta": {
+            "phone_number": body.phone_number,
+            "gender": body.gender,
+            "assigned_class_id": body.assigned_class_id,
+            "core_subject": body.core_subject,
+        },
+        "created_at": now_iso(),
+    }
+    profile = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "email": email,
+        "name": body.name,
+        "phone_number": body.phone_number,
+        "gender": body.gender,
+        "assigned_class_id": body.assigned_class_id,
+        "core_subject": body.core_subject,
+        "profile_image": body.profile_image,
+        "created_by": user["id"],
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(teacher_user)
+    await db.teacher_profiles.insert_one(profile)
+    public_user = {k: v for k, v in teacher_user.items() if k not in ("password", "_id")}
+    return {
+        "teacher": {k: v for k, v in profile.items() if k != "_id"},
+        "user": public_user,
+        "credentials": {"email": email, "password": password},
+    }
+
+
 @api.post("/students")
-async def create_student(body: StudentCreate, user=Depends(require_roles("super_admin", "school_admin"))):
+async def create_student(body: StudentCreate, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
     s = body.model_dump()
+    assigned_profile = await _teacher_profile_for_user(user)
+    if assigned_profile and s["class_id"] != assigned_profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can add students only to their assigned class")
+    cls = await db.classes.find_one({"id": s["class_id"]}, {"_id": 0})
+    if not cls:
+        raise HTTPException(404, "Class not found")
+    if not s.get("section"):
+        s["section"] = cls.get("section", "")
     s["id"] = str(uuid.uuid4())
     s["school_id"] = user.get("school_id", "default-school")
+    s["created_by"] = user["id"]
     s["created_at"] = now_iso()
     await db.students.insert_one(s)
     return {k: v for k, v in s.items() if k != "_id"}
@@ -276,6 +460,9 @@ async def list_students(class_id: Optional[str] = None, user=Depends(get_current
     q: Dict[str, Any] = {}
     if class_id:
         q["class_id"] = class_id
+    assigned_profile = await _teacher_profile_for_user(user)
+    if assigned_profile:
+        q["class_id"] = assigned_profile.get("assigned_class_id", "")
     if user["role"] == "parent":
         # parent sees only their child(ren)
         q["parent_email"] = user["email"]
@@ -304,6 +491,9 @@ async def get_student(student_id: str, user=Depends(get_current_user)):
 # =========================================================
 @api.post("/attendance/mark")
 async def mark_attendance(body: AttendanceMark, user=Depends(require_roles("teacher", "school_admin", "super_admin"))):
+    profile = await _teacher_profile_for_user(user)
+    if profile and body.class_id != profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can mark attendance only for their assigned class")
     docs = []
     for r in body.records:
         docs.append({
@@ -329,6 +519,9 @@ async def get_attendance(class_id: Optional[str] = None, student_id: Optional[st
     q: Dict[str, Any] = {}
     if class_id:
         q["class_id"] = class_id
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        q["class_id"] = profile.get("assigned_class_id", "")
     if student_id:
         q["student_id"] = student_id
     return await db.attendance.find(q, {"_id": 0}).sort("date", -1).to_list(1000)
@@ -480,6 +673,17 @@ async def dashboard_stats(user=Depends(get_current_user)):
     async for d in db.marks.aggregate(pipe):
         subj.append({"subject": d["_id"], "avg": round(d["avg"], 1)})
 
+    teacher_context = None
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        assigned_class = await db.classes.find_one({"id": profile.get("assigned_class_id")}, {"_id": 0})
+        teacher_context = {
+            "name": profile.get("name") or user.get("name"),
+            "core_subject": profile.get("core_subject"),
+            "assigned_class": assigned_class,
+            "profile_image": profile.get("profile_image"),
+        }
+
     return {
         "counts": {
             "students": students_count, "teachers": teachers_count, "classes": classes_count,
@@ -488,6 +692,7 @@ async def dashboard_stats(user=Depends(get_current_user)):
         },
         "attendance_trend": attendance_trend,
         "subject_performance": subj,
+        "teacher_context": teacher_context,
     }
 
 
@@ -598,6 +803,25 @@ async def seed_data():
                 "grade": cls, "section": sec, "school_id": SCHOOL,
             })
     await db.classes.insert_many(classes)
+    await db.users.update_one({"id": user_ids["teacher"]}, {"$set": {"meta": {
+        "assigned_class_id": "cls-9A",
+        "phone_number": "+91-9000000001",
+        "gender": "M",
+        "core_subject": "Mathematics",
+    }}})
+    await db.teacher_profiles.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_ids["teacher"],
+        "email": "teacher@aischool.io",
+        "name": "Rohit Iyer",
+        "phone_number": "+91-9000000001",
+        "gender": "M",
+        "assigned_class_id": "cls-9A",
+        "core_subject": "Mathematics",
+        "profile_image": None,
+        "created_by": user_ids["school_admin"],
+        "created_at": now_iso(),
+    })
 
     # Students (sample 30)
     sample_names = [
@@ -716,11 +940,14 @@ async def _startup():
     try:
         await db.users.create_index("email", unique=True)
         await db.students.create_index("id", unique=True)
+        await db.teacher_profiles.create_index("user_id", unique=True)
         # auto-seed if no users exist
         count = await db.users.count_documents({})
         if count == 0:
             await seed_data()
             logger.info("Auto-seeded demo data")
+        else:
+            await _ensure_demo_teacher_profile()
     except Exception as e:
         logger.exception("startup error: %s", e)
 

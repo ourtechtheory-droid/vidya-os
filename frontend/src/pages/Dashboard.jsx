@@ -38,6 +38,7 @@ export default function Dashboard() {
     Present: d.present || 0, Absent: d.absent || 0, Late: d.late || 0,
   }));
   const subj = stats?.subject_performance || [];
+  const teacherContext = stats?.teacher_context;
 
   const isParent = user?.role === "parent";
   const isStudent = user?.role === "student";
@@ -54,6 +55,29 @@ export default function Dashboard() {
           <Sparkles className="w-4 h-4" /> Generate AI brief
         </Link>
       </div>
+
+      {user?.role === "teacher" && teacherContext && (
+        <div className="card-soft p-6 !bg-[#E5EFE8] border-[#4A7C59]/10" data-testid="teacher-context-card">
+          <div className="flex items-center gap-4">
+            {teacherContext.profile_image ? (
+              <img src={teacherContext.profile_image} alt="" className="w-14 h-14 rounded-full object-cover" />
+            ) : (
+              <div className="w-14 h-14 rounded-2xl bg-[#4A7C59] text-white grid place-items-center text-xl font-display font-semibold">
+                {(teacherContext.name || user?.name || "T").charAt(0)}
+              </div>
+            )}
+            <div>
+              <div className="label-eyebrow text-[#4A7C59]/80">Teacher workspace</div>
+              <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight">
+                {teacherContext.name || user?.name}
+              </h2>
+              <p className="mt-1 text-sm text-neutral-700">
+                Class Teacher: {teacherContext.assigned_class?.name || "Not assigned"} {teacherContext.core_subject ? `- ${teacherContext.core_subject}` : ""}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
