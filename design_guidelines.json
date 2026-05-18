@@ -1,0 +1,139 @@
+{
+  "theme_and_archetype": {
+    "domain": "Education Enterprise ERP (Indian Market)",
+    "primary_archetype": "Archetype 4 (Swiss & High-Contrast) + Organic Accents",
+    "theme": "Light Mode Primary (with Dark Mode support for Ops/Dashboards)",
+    "vibe": "Apple-level UI/UX, Liquid Glass, Enterprise-grade density, Indian-premium warmth",
+    "reasoning": "Needs the authority and data-density of a Stripe/Notion dashboard, infused with warm, earthy accents (Terracotta/Sage) to feel approachable and culturally resonant for Indian schools."
+  },
+  "color_system": {
+    "backgrounds": {
+      "light": {
+        "base": "#F9FAFB",
+        "surface": "#FFFFFF",
+        "surface_glass": "rgba(255, 255, 255, 0.75)",
+        "surface_raised": "#F3F4F6"
+      },
+      "dark": {
+        "base": "#0A0A0A",
+        "surface": "#121212",
+        "surface_glass": "rgba(18, 18, 18, 0.65)",
+        "surface_raised": "#1E1E1E"
+      }
+    },
+    "brand_accents": {
+      "primary": "#E05236", 
+      "primary_hover": "#C8432A",
+      "secondary": "#0A1128", 
+      "tertiary": "#4A7C59"
+    },
+    "text": {
+      "light_mode": {
+        "primary": "#0A1128",
+        "secondary": "#4B5563",
+        "muted": "#9CA3AF"
+      },
+      "dark_mode": {
+        "primary": "#FFFFFF",
+        "secondary": "#9CA3AF",
+        "muted": "#4B5563"
+      }
+    },
+    "utility": {
+      "success": "#4A7C59",
+      "warning": "#F59E0B",
+      "error": "#DC2626",
+      "border_light": "rgba(0,0,0,0.08)",
+      "border_dark": "rgba(255,255,255,0.12)"
+    }
+  },
+  "typography": {
+    "heading_font": "Outfit, sans-serif",
+    "body_font": "Manrope, sans-serif",
+    "rules": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-none",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl font-medium tracking-tight",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed text-secondary",
+      "small_labels": "text-xs font-semibold uppercase tracking-[0.2em] text-muted",
+      "metrics": "text-4xl font-light tracking-tighter"
+    }
+  },
+  "spacing_and_layout": {
+    "marketing_page": {
+      "grid_mode": "Mode A: The Tetris Grid",
+      "container_padding": "py-24 px-6 md:px-12 lg:px-24",
+      "gap": "gap-8 md:gap-12",
+      "hero_overlay": "bg-black/30",
+      "style": "Asymmetrical bento boxes, large typography, generous negative space."
+    },
+    "dashboard": {
+      "grid_mode": "Mode B: The Control Room Grid",
+      "container_padding": "p-4 md:p-6 lg:p-8",
+      "gap": "gap-4 md:gap-6",
+      "sidebar": "w-64 border-r border-border_light hidden md:block",
+      "style": "Dense data widgets, full height usage, strict F-pattern alignment."
+    }
+  },
+  "surface_styles": {
+    "marketing_cards": "bg-white border border-black/5 rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 p-8",
+    "dashboard_widgets": "bg-white border border-black/10 rounded-xl p-5 md:p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]",
+    "glass_header": "backdrop-blur-xl bg-white/75 border-b border-black/5 sticky top-0 z-50",
+    "active_state": "ring-2 ring-primary ring-offset-2"
+  },
+  "animation_and_motion": {
+    "page_transitions": "opacity 0.3s ease, transform 0.3s ease",
+    "hover_effects": "transform -translate-y-1 transition-transform duration-200",
+    "staggered_lists": "Framer Motion staggering (delay 0.05s per item)",
+    "rules": "Respect prefers-reduced-motion. No aggressive bouncing. Smooth, Apple-like ease-out curves (cubic-bezier(0.16, 1, 0.3, 1))."
+  },
+  "component_rules": {
+    "buttons": "Rounded-full or rounded-xl (consistent), px-6 py-3 font-medium transition-all. Primary uses #E05236, secondary uses #F3F4F6 with dark text.",
+    "tables": "Shadcn UI table. Virtualized if huge. Sticky headers. text-sm for data density.",
+    "inputs": "Shadcn UI inputs. 1px border, subtle focus ring (ring-primary/20).",
+    "charts": "Recharts wrapped in Shadcn. Minimal grid lines, use primary/tertiary colors.",
+    "icons": "lucide-react (stroke-width: 1.5 for elegance).",
+    "forms": "Use React Hook Form + Zod + Shadcn Form primitives."
+  },
+  "image_urls": {
+    "marketing_hero": {
+      "url": "https://images.unsplash.com/photo-1770832501247-f8de2a392550?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBmdXR1cmlzdGljJTIwc2Nob29sJTIwYnVpbGRpbmd8ZW58MHx8fHwxNzc4MzIzOTk5fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern architectural interior with a lone person",
+      "placement": "Marketing landing page hero background"
+    },
+    "teacher_profile": {
+      "url": "https://images.unsplash.com/photo-1601655781320-205e34c94eb1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwyfHxpbmRpYW4lMjB0ZWFjaGVyJTIwcHJvZmVzc2lvbmFsJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc4MzIzOTc3fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Professional man holding white ipad",
+      "placement": "AI Teacher Assistant module visual or Teacher Dashboard Avatar"
+    },
+    "student_classroom": {
+      "url": "https://images.pexels.com/photos/18012464/pexels-photo-18012464.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Two schoolboys in uniforms attentively listening",
+      "placement": "Student Intelligence Platform / Academic Analytics section visual"
+    },
+    "abstract_glass": {
+      "url": "https://images.unsplash.com/photo-1678535903460-51c27a661969?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjBhYnN0cmFjdCUyMGdsYXNzfGVufDB8fHx8MTc3ODMyMzk5OXww&ixlib=rb-4.1.0&q=85",
+      "description": "Tall building with glass balconies",
+      "placement": "Bento grid filler image or Parent App section background"
+    }
+  },
+  "accessibility_and_testing": {
+    "testing_ids": "CRITICAL: All buttons, links, form inputs, menus, and widgets MUST have a `data-testid` attribute (e.g., `data-testid=\"login-submit-button\"`).",
+    "contrast": "Ensure APCA/WCAG AA compliance. Text over images must use text-shadow or a gradient overlay.",
+    "aria": "Use aria-labels for icon-only buttons (like sidebar toggles or action menus)."
+  },
+  "instructions_to_main_agent": [
+    "You are building a hybrid app: A Marketing Landing Page + A Dense Dashboard ERP.",
+    "Start by setting up the theme colors in tailwind.config.js using the hex codes provided in this JSON.",
+    "Install and configure 'Outfit' for headings and 'Manrope' for body text via Google Fonts.",
+    "Use standard HTML/Tailwind for the Marketing Page to allow creative bento box layouts and asymmetrical spacing (p-12, gap-8).",
+    "Use Shadcn UI extensively for the Dashboard. Build a modular widget system using standard Tailwind grid (grid-cols-1 md:grid-cols-3 lg:grid-cols-4) with tight gaps (gap-6).",
+    "Implement an Apple-like 'Liquid Glass' sticky header for the marketing site using backdrop-blur-xl and bg-white/70.",
+    "Do NOT use pure #000000 or #808080. Follow the exact color palettes provided.",
+    "For all charts, use Recharts and map the colors to primary (#E05236) and tertiary (#4A7C59).",
+    "Include the provided image URLs exactly as they are. Do not use placeholders like via.placeholder.com.",
+    "Every interactive element must include a descriptive data-testid.",
+    "Ensure the dashboard handles multi-role logic seamlessly, updating the navigation and widget grid based on the role (Admin/Teacher/Parent/Student)."
+  ]
+}

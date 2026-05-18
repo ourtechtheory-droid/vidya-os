@@ -1,0 +1,37 @@
+{
+  "summary": "Full-stack regression of VidyaOS (AI School OS). Created 27 pytest tests covering auth (5 demo accounts), RBAC, students/parent-student scoping, attendance idempotency, exams/marks, fees + mock pay, circulars, dashboard stats, and 3 GPT-5.2 AI endpoints — all 27 PASSED. Frontend Playwright run covering Landing, Login (demo school admin one-click), Dashboard KPIs+Recharts, Students list -> Student profile (radar chart), Attendance save, Fees Pay-now -> confirm-pay (success toast), Circulars new modal, AI Teacher generate (5310-char output), AI Insights, AI Saathi parent chat (replied with Ananya's 85.7% attendance) — ALL FLOWS PASS.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/app/attendance", "issues": ["Uses browser-native HTML <input type='date'> picker (e.g. macOS-style 05/09/2026 widget) instead of a shadcn/ui Calendar component — inconsistent with design system"]},
+      {"screen": "/app (Dashboard)", "issues": ["Recharts logs 'width(-1) and height(-1) of chart should be greater than 0' warnings during initial render — set explicit minWidth/minHeight on ResponsiveContainer parents to silence and avoid layout thrash"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Low) Replace native date input on Attendance page with shadcn Calendar/Popover for design consistency",
+    "(Low) Set minHeight on Recharts ResponsiveContainer wrappers in Dashboard.jsx to remove width(-1)/height(-1) warnings"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 731 lines — borderline; consider splitting routers (auth, students, attendance, exams, fees, ai, seed) into modules under /app/backend/routes/ for maintainability",
+    "Seed uses `import random` inside a function and is not deterministic — fine for demo but flaky for tests; consider random.seed(42) so attendance %, marks and fee paid/pending counts are reproducible across reseeds",
+    "Auto-seed runs only when users count == 0, but does not run if collection is partially populated — acceptable but document",
+    "RBAC properly enforced (require_roles) on writes; reads use role-aware filters (parent/student) — verified via tests",
+    "MongoDB _id excluded everywhere via projection `{_id: 0}` — clean",
+    "AI endpoints gracefully degrade with `(AI temporarily unavailable: ...)` 200 string — confirmed real GPT-5.2 calls succeed (~5-15s)",
+    "Pydantic validation on all POSTs; UUIDs used as ids; bcrypt password hashing — solid"
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py", "/app/backend/tests/__init__.py"],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "100% (9/9 critical flows)"},
+  "test_credentials": "All demo accounts at /app/memory/test_credentials.md — password Pass@1234 — super@/admin@/teacher@/student@/parent@aischool.io. Verified all 5 login OK and produce correct role.",
+  "seed_data_creation": "No new seed needed — backend auto-seeds on first startup (1 of each role + 30 students + 14 days attendance + Quarterly exam with 150 marks + 90 fee records + 3 circulars). Tests created TEST_Circular and one mock-paid fee receipt; both isolated and don't affect demo flows.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/backend_test.py and pass in ~46s. They include parametrised login for all 5 roles, AI endpoint smoke tests (timeout 60s each), and create→read verifications. Frontend selectors observed: demo-{role} buttons, login-submit-button, view-student-{roll_no}, save-attendance, confirm-pay, generate-ai, ai-output, generate-insights, chat-input, chat-send. Note: 'View profile' link contains an arrow → so use data-testid not text match. AI generation can take 15-30s — wait_for_selector with 35s timeout works.",
+  "rca of the issue": "No backend or critical frontend issues found. Two design-consistency improvements noted (native date picker, recharts container warnings) are cosmetic and tracked as Low priority action items."
+}

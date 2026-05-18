@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;          /* #F9FAFB */
+    --foreground: 224 60% 10%;          /* #0A1128 navy */
+    --card: 0 0% 100%;
+    --card-foreground: 224 60% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 60% 10%;
+    --primary: 12 75% 54%;              /* #E05236 terracotta */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 60% 10%;           /* navy */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 138 25% 39%;              /* sage */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 12 75% 54%;
+    --radius: 0.85rem;
+  }
+  .dark {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 12 75% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 138 25% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 12 75% 60%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body { @apply bg-background text-foreground; font-family: 'Manrope', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4 { font-family: 'Outfit', system-ui, sans-serif; letter-spacing: -0.02em; }
+  ::selection { background: #E05236; color: #fff; }
+}
+
+@layer utilities {
+  .glass {
+    @apply backdrop-blur-xl bg-white/75 border-b border-black/5;
+  }
+  .grain {
+    background-image: radial-gradient(circle at 1px 1px, rgba(10,17,40,0.05) 1px, transparent 0);
+    background-size: 16px 16px;
+  }
+  .text-balance { text-wrap: balance; }
+  .ring-brand { @apply ring-2 ring-[#E05236] ring-offset-2 ring-offset-white; }
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-[#E05236] text-white font-medium hover:bg-[#C8432A] transition-all duration-200 hover:-translate-y-0.5 shadow-sm hover:shadow-md; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-black/10 text-[#0A1128] hover:bg-black/5 transition-all duration-200; }
+  .card-soft { @apply bg-white border border-black/[0.06] rounded-2xl; box-shadow: 0 2px 12px rgba(10,17,40,0.04); }
+  .card-plain { @apply border border-black/[0.06] rounded-2xl; box-shadow: 0 2px 12px rgba(10,17,40,0.04); }
+  .label-eyebrow { @apply text-[11px] uppercase tracking-[0.22em] font-semibold text-neutral-500; }
+  .anim-pop { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+
+@layer base {
+  [data-debug-wrapper="true"] { display: contents !important; }
+  [data-debug-wrapper="true"] > * {
+    margin-left: inherit; margin-right: inherit; margin-top: inherit; margin-bottom: inherit;
+    padding-left: inherit; padding-right: inherit; padding-top: inherit; padding-bottom: inherit;
+    column-gap: inherit; row-gap: inherit; gap: inherit;
+    border-left-width: inherit; border-right-width: inherit; border-top-width: inherit; border-bottom-width: inherit;
+    border-left-style: inherit; border-right-style: inherit; border-top-style: inherit; border-bottom-style: inherit;
+    border-left-color: inherit; border-right-color: inherit; border-top-color: inherit; border-bottom-color: inherit;
+  }
+}
