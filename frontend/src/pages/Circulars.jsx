@@ -11,7 +11,13 @@ export default function Circulars() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [audience, setAudience] = useState("all");
-  const canPost = ["super_admin", "school_admin", "teacher"].includes(user?.role);
+const canPost = ["super_admin", "school_admin", "teacher"].includes(user?.role);
+  const audienceOptions = [
+    { id: "all", label: "Everyone" },
+    { id: "teachers", label: "Circular to teachers" },
+    { id: "students", label: "Circular to students" },
+    { id: "parents", label: "Circular to parents" },
+  ];
 
   const load = () => api.get("/circulars").then(({ data }) => setList(data));
   useEffect(() => { load(); }, []);
@@ -71,12 +77,20 @@ export default function Circulars() {
             <div className="mt-5 space-y-3">
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full px-4 py-3 rounded-xl border border-black/10 bg-white outline-none focus:ring-2 focus:ring-[#E05236]/30 focus:border-[#E05236]" data-testid="circular-title" />
               <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} placeholder="Body / details" className="w-full px-4 py-3 rounded-xl border border-black/10 bg-white outline-none focus:ring-2 focus:ring-[#E05236]/30 focus:border-[#E05236] resize-none" data-testid="circular-body" />
-              <select value={audience} onChange={(e) => setAudience(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-black/10 bg-white outline-none focus:ring-2 focus:ring-[#E05236]/30" data-testid="circular-audience">
-                <option value="all">Everyone</option>
-                <option value="parents">Parents only</option>
-                <option value="teachers">Teachers only</option>
-                <option value="students">Students only</option>
-              </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="circular-audience">
+                {audienceOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setAudience(opt.id)}
+                    className={`text-left px-4 py-3 rounded-xl border text-sm transition ${
+                      audience === opt.id ? "border-[#E05236] bg-[#FBE9E3] text-[#E05236]" : "border-black/10 bg-white text-neutral-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button onClick={() => setOpen(false)} className="btn-ghost text-sm py-2.5">Cancel</button>

@@ -10,6 +10,12 @@ import { Link } from "react-router-dom";
 
 const fmtINR = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
 
+const EXAM_STATUS = {
+  scheduled: "Scheduled",
+  under_correction: "Under correction",
+  results_out: "Results are out",
+};
+
 const KPI = ({ label, value, sub, icon: Icon, accent = "bg-[#0A1128] text-white" }) => (
   <div className="card-soft p-6" data-testid={`kpi-${label.toLowerCase().replace(/\s+/g,'-')}`}>
     <div className="flex items-center justify-between">
@@ -39,6 +45,7 @@ export default function Dashboard() {
   }));
   const subj = stats?.subject_performance || [];
   const teacherContext = stats?.teacher_context;
+  const recentExams = stats?.recent_exams || [];
 
   const isParent = user?.role === "parent";
   const isStudent = user?.role === "student";
@@ -140,6 +147,34 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {recentExams.length > 0 && (
+        <div className="card-soft p-6" data-testid="dashboard-exam-posts">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <div className="label-eyebrow">Exam posts</div>
+              <h3 className="font-display text-xl font-semibold mt-1">Latest exam updates</h3>
+            </div>
+            <Link to="/app/exams" className="text-xs text-[#E05236] font-medium">View exams</Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {recentExams.map((exam) => (
+              <div key={exam.id} className="rounded-xl border border-black/5 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium">{exam.name}</div>
+                    <div className="mt-1 text-xs text-neutral-500">{exam.subject} - {exam.exam_date || exam.start_date} - {exam.time || "Time TBA"}</div>
+                  </div>
+                  <span className="shrink-0 px-2 py-1 rounded-full bg-[#FBE9E3] text-[#E05236] text-[11px] font-semibold">
+                    {EXAM_STATUS[exam.status || "scheduled"]}
+                  </span>
+                </div>
+                {exam.syllabus && <div className="mt-3 text-sm text-neutral-600 line-clamp-2">{exam.syllabus}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Lower row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

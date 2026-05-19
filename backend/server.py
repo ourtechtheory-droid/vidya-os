@@ -91,6 +91,10 @@ class ClassCreate(BaseModel):
     name: Optional[str] = None
 
 
+class ClassDeleteConfirm(BaseModel):
+    confirmation_sentence: str
+
+
 class TeacherCreate(BaseModel):
     name: str
     phone_number: str
@@ -116,11 +120,19 @@ class MarkEntry(BaseModel):
 
 class ExamCreate(BaseModel):
     name: str
-    type: Literal["unit_test", "quarterly", "half_yearly", "pre_final", "final", "practical"]
     class_id: str
-    subjects: List[str]
-    start_date: str
-    end_date: str
+    subject: Optional[str] = None
+    subjects: List[str] = Field(default_factory=list)
+    syllabus: Optional[str] = None
+    exam_date: Optional[str] = None
+    time: Optional[str] = None
+    type: Literal["unit_test", "quarterly", "half_yearly", "pre_final", "final", "practical"] = "unit_test"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class ExamStatusUpdate(BaseModel):
+    status: Literal["scheduled", "under_correction", "results_out"]
 
 
 class FeeCreate(BaseModel):
@@ -205,6 +217,15 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+CLASS_DELETE_CONFIRMATIONS = {
+    "I understand this class will be deleted from VidyaOS.",
+    "Delete this class after checking all linked school records.",
+    "I confirm this class deletion is intentional.",
+    "This class is no longer needed in the school records.",
+    "Proceed with deleting this class from the admin panel.",
+}
+
+
 def _temp_password(length: int = 10) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
@@ -262,6 +283,157 @@ async def _ensure_demo_teacher_profile():
         "created_by": teacher["id"],
         "created_at": now_iso(),
     })
+
+
+async def _classes_with_summary(query: Dict[str, Any]) -> List[Dict[str, Any]]:
+    classes = await db.classes.find(query, {"_id": 0}).sort("grade", 1).to_list(500)
+    out = []
+    for klass in classes:
+        teacher = await db.teacher_profiles.find_one({"assigned_class_id": klass["id"]}, {"_id": 0})
+        count = await db.students.count_documents({"class_id": klass["id"]})
+        out.append({
+            **klass,
+            "class_teacher": teacher,
+            "students_count": count,
+        })
+    return out
+
+
+async def _ensure_class_teachers_and_rosters():
+    classes = await db.classes.find({}, {"_id": 0}).to_list(500)
+    if not classes:
+        return {"classes": 0, "teachers_created": 0, "students_created": 0}
+
+    first_names = [
+        "Aarav", "Vivaan", "Aditya", "Ishaan", "Ayaan", "Krishna", "Arjun", "Reyansh", "Karthik", "Aryan",
+        "Ananya", "Diya", "Saanvi", "Aadhya", "Myra", "Aarohi", "Anika", "Pari", "Riya", "Kiara",
+    ]
+    last_names = [
+        "Verma", "Kapoor", "Nair", "Joshi", "Khan", "Patel", "Rao", "Singh", "Menon", "Gupta",
+        "Reddy", "Iyer", "Pillai", "Bose", "Ghosh", "Kulkarni", "Das", "Sinha", "Banerjee", "Shah",
+    ]
+    teacher_names = [
+        "Rohit Iyer", "Meera Nair", "Kabir Sharma", "Nisha Rao", "Arvind Menon",
+        "Farah Khan", "Devika Pillai", "Sanjay Patel", "Leela Bose", "Harish Gupta",
+    ]
+    subjects = ["Mathematics", "Science", "English", "Social Studies", "Hindi", "Computer Science"]
+    today = datetime.now(timezone.utc).date()
+    teachers_created = 0
+    students_created = 0
+
+    admin = await db.users.find_one({"role": "school_admin"}, {"_id": 0})
+    created_by = admin["id"] if admin else "system"
+
+    for idx, klass in enumerate(classes):
+        teacher = await db.teacher_profiles.find_one({"assigned_class_id": klass["id"]}, {"_id": 0})
+        if not teacher:
+            teacher_name = teacher_names[idx % len(teacher_names)]
+            email = f"classteacher.{klass['id'].lower()}@vidyaos.teacher"
+            n = 2
+            base_email = email
+            while await db.users.find_one({"email": email}, {"_id": 0}):
+                email = base_email.replace("@", f"{n}@")
+                n += 1
+            user_id = str(uuid.uuid4())
+            subject = subjects[idx % len(subjects)]
+            await db.users.insert_one({
+                "id": user_id,
+                "email": email,
+                "password": _hash_pwd("Pass@1234"),
+                "name": teacher_name,
+                "role": "teacher",
+                "school_id": klass.get("school_id", "default-school"),
+                "avatar": None,
+                "meta": {
+                    "assigned_class_id": klass["id"],
+                    "phone_number": f"+91-90000{idx:05d}",
+                    "gender": "F" if idx % 2 else "M",
+                    "core_subject": subject,
+                },
+                "created_at": now_iso(),
+            })
+            await db.teacher_profiles.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "email": email,
+                "name": teacher_name,
+                "phone_number": f"+91-90000{idx:05d}",
+                "gender": "F" if idx % 2 else "M",
+                "assigned_class_id": klass["id"],
+                "core_subject": subject,
+                "profile_image": None,
+                "created_by": created_by,
+                "created_at": now_iso(),
+            })
+            teachers_created += 1
+
+        current = await db.students.count_documents({"class_id": klass["id"]})
+        if current >= 20:
+            continue
+        existing_students = await db.students.find({"class_id": klass["id"]}, {"_id": 0, "roll_no": 1}).to_list(100)
+        existing_rolls = {str(s.get("roll_no")) for s in existing_students}
+        candidate_rolls = [str(n) for n in range(1, 41) if str(n) not in existing_rolls]
+        new_students = []
+        for roll_no in candidate_rolls[:20 - current]:
+            sid = str(uuid.uuid4())
+            roll = int(roll_no)
+            name = f"{first_names[(roll + idx) % len(first_names)]} {last_names[(roll + idx * 3) % len(last_names)]}"
+            new_students.append({
+                "id": sid,
+                "name": name,
+                "roll_no": roll_no,
+                "class_id": klass["id"],
+                "section": klass.get("section", ""),
+                "gender": "F" if roll % 2 == 0 else "M",
+                "dob": "2011-06-15",
+                "school_id": klass.get("school_id", "default-school"),
+                "parent_email": None,
+                "parent_phone": "+91-9000000000",
+                "address": "Hyderabad, India",
+                "house": ["Eagle", "Tiger", "Lion", "Falcon"][roll % 4],
+                "category": "GEN",
+                "created_by": created_by,
+                "created_at": now_iso(),
+            })
+        if new_students:
+            await db.students.insert_many(new_students)
+            students_created += len(new_students)
+            att_docs = []
+            fee_docs = []
+            for d in range(14):
+                day = (today - timedelta(days=d)).isoformat()
+                for pos, student in enumerate(new_students):
+                    status = "absent" if (pos + d) % 17 == 0 else ("late" if (pos + d) % 11 == 0 else "present")
+                    att_docs.append({
+                        "id": str(uuid.uuid4()),
+                        "class_id": student["class_id"],
+                        "date": day,
+                        "student_id": student["id"],
+                        "status": status,
+                        "marked_by": created_by,
+                        "created_at": now_iso(),
+                    })
+            for student in new_students:
+                for term in ["Term 1", "Term 2", "Term 3"]:
+                    fee_docs.append({
+                        "id": str(uuid.uuid4()),
+                        "student_id": student["id"],
+                        "term": term,
+                        "amount": 15000,
+                        "due_date": "2026-03-31",
+                        "type": "tuition",
+                        "status": "pending",
+                        "paid_at": None,
+                        "method": None,
+                        "receipt_no": None,
+                        "created_at": now_iso(),
+                    })
+            if att_docs:
+                await db.attendance.insert_many(att_docs)
+            if fee_docs:
+                await db.fees.insert_many(fee_docs)
+
+    return {"classes": len(classes), "teachers_created": teachers_created, "students_created": students_created}
 
 
 # =========================================================
@@ -334,8 +506,8 @@ async def me(user=Depends(get_current_user)):
 async def list_classes(user=Depends(get_current_user)):
     profile = await _teacher_profile_for_user(user)
     if profile:
-        return await db.classes.find({"id": profile.get("assigned_class_id", "")}, {"_id": 0}).to_list(1)
-    return await db.classes.find({}, {"_id": 0}).to_list(500)
+        return await _classes_with_summary({"id": profile.get("assigned_class_id", "")})
+    return await _classes_with_summary({})
 
 
 @api.post("/classes")
@@ -358,6 +530,17 @@ async def create_class(body: ClassCreate, user=Depends(require_roles("super_admi
     }
     await db.classes.insert_one(c)
     return {k: v for k, v in c.items() if k != "_id"}
+
+
+@api.delete("/classes/{class_id}")
+async def delete_class(class_id: str, body: ClassDeleteConfirm, user=Depends(require_roles("super_admin", "school_admin"))):
+    if body.confirmation_sentence not in CLASS_DELETE_CONFIRMATIONS:
+        raise HTTPException(400, "Confirmation sentence did not match")
+    existing = await db.classes.find_one({"id": class_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Class not found")
+    await db.classes.delete_one({"id": class_id})
+    return {"ok": True, "deleted_class_id": class_id}
 
 
 @api.get("/teachers")
@@ -533,7 +716,23 @@ async def get_attendance(class_id: Optional[str] = None, student_id: Optional[st
 @api.post("/exams")
 async def create_exam(body: ExamCreate, user=Depends(require_roles("school_admin", "super_admin", "teacher"))):
     e = body.model_dump()
+    profile = await _teacher_profile_for_user(user)
+    if profile and e["class_id"] != profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can create exams only for their assigned class")
+    if not await db.classes.find_one({"id": e["class_id"]}, {"_id": 0}):
+        raise HTTPException(404, "Class not found")
+    if e.get("subject") and e["subject"] not in e["subjects"]:
+        e["subjects"] = [e["subject"], *e["subjects"]]
+    if not e["subjects"]:
+        raise HTTPException(400, "At least one subject is required")
+    e["subject"] = e.get("subject") or e["subjects"][0]
+    e["exam_date"] = e.get("exam_date") or e.get("start_date") or now_iso()[:10]
+    e["start_date"] = e.get("start_date") or e["exam_date"]
+    e["end_date"] = e.get("end_date") or e["exam_date"]
     e["id"] = str(uuid.uuid4())
+    e["status"] = "scheduled"
+    e["created_by"] = user["id"]
+    e["created_by_name"] = user["name"]
     e["created_at"] = now_iso()
     await db.exams.insert_one(e)
     return {k: v for k, v in e.items() if k != "_id"}
@@ -541,7 +740,31 @@ async def create_exam(body: ExamCreate, user=Depends(require_roles("school_admin
 
 @api.get("/exams")
 async def list_exams(user=Depends(get_current_user)):
-    return await db.exams.find({}, {"_id": 0}).to_list(500)
+    q: Dict[str, Any] = {}
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        q["class_id"] = profile.get("assigned_class_id", "")
+    elif user["role"] == "student":
+        sid = user.get("meta", {}).get("student_id")
+        student = await db.students.find_one({"id": sid}, {"_id": 0}) if sid else None
+        q["class_id"] = student.get("class_id", "") if student else ""
+    elif user["role"] == "parent":
+        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0}).to_list(50)
+        q["class_id"] = {"$in": [k["class_id"] for k in kids]}
+    return await db.exams.find(q, {"_id": 0}).sort("exam_date", -1).to_list(500)
+
+
+@api.patch("/exams/{exam_id}/status")
+async def update_exam_status(exam_id: str, body: ExamStatusUpdate, user=Depends(require_roles("school_admin", "super_admin", "teacher"))):
+    exam = await db.exams.find_one({"id": exam_id}, {"_id": 0})
+    if not exam:
+        raise HTTPException(404, "Exam not found")
+    profile = await _teacher_profile_for_user(user)
+    if profile and exam.get("class_id") != profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can update exams only for their assigned class")
+    await db.exams.update_one({"id": exam_id}, {"$set": {"status": body.status, "status_updated_at": now_iso()}})
+    updated = await db.exams.find_one({"id": exam_id}, {"_id": 0})
+    return updated
 
 
 @api.post("/marks")
@@ -626,7 +849,14 @@ async def create_circular(body: CircularCreate, user=Depends(require_roles("scho
 
 @api.get("/circulars")
 async def list_circulars(user=Depends(get_current_user)):
-    return await db.circulars.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    q: Dict[str, Any] = {}
+    if user["role"] == "teacher":
+        q["audience"] = {"$in": ["all", "teachers"]}
+    elif user["role"] == "student":
+        q["audience"] = {"$in": ["all", "students"]}
+    elif user["role"] == "parent":
+        q["audience"] = {"$in": ["all", "parents"]}
+    return await db.circulars.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
 # =========================================================
@@ -684,6 +914,18 @@ async def dashboard_stats(user=Depends(get_current_user)):
             "profile_image": profile.get("profile_image"),
         }
 
+    exam_query: Dict[str, Any] = {}
+    if user["role"] == "student":
+        sid = user.get("meta", {}).get("student_id")
+        student = await db.students.find_one({"id": sid}, {"_id": 0}) if sid else None
+        exam_query["class_id"] = student.get("class_id", "") if student else ""
+    elif user["role"] == "parent":
+        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0}).to_list(50)
+        exam_query["class_id"] = {"$in": [k["class_id"] for k in kids]}
+    elif profile:
+        exam_query["class_id"] = profile.get("assigned_class_id", "")
+    recent_exams = await db.exams.find(exam_query, {"_id": 0}).sort("exam_date", -1).to_list(5)
+
     return {
         "counts": {
             "students": students_count, "teachers": teachers_count, "classes": classes_count,
@@ -693,6 +935,7 @@ async def dashboard_stats(user=Depends(get_current_user)):
         "attendance_trend": attendance_trend,
         "subject_performance": subj,
         "teacher_context": teacher_context,
+        "recent_exams": recent_exams,
     }
 
 
@@ -772,7 +1015,8 @@ async def seed_data():
     # If already seeded skip
     has_admin = await db.users.find_one({"email": "admin@aischool.io"})
     if has_admin:
-        return {"ok": True, "msg": "already-seeded"}
+        summary = await _ensure_class_teachers_and_rosters()
+        return {"ok": True, "msg": "already-seeded", **summary}
 
     SCHOOL = "default-school"
 
@@ -917,7 +1161,8 @@ async def seed_data():
             "created_at": now_iso(),
         })
 
-    return {"ok": True, "msg": "seeded", "users": len(users_seed), "students": len(students)}
+    roster_summary = await _ensure_class_teachers_and_rosters()
+    return {"ok": True, "msg": "seeded", "users": len(users_seed), "students": len(students) + roster_summary["students_created"], **roster_summary}
 
 
 # =========================================================
@@ -948,6 +1193,8 @@ async def _startup():
             logger.info("Auto-seeded demo data")
         else:
             await _ensure_demo_teacher_profile()
+            summary = await _ensure_class_teachers_and_rosters()
+            logger.info("Roster/class-teacher sync complete: %s", summary)
     except Exception as e:
         logger.exception("startup error: %s", e)
 

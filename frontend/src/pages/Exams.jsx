@@ -1,102 +1,84 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { Trophy, FileSpreadsheet, Save } from "lucide-react";
+import { toast } from "sonner";
+import { CheckCircle2, ClipboardList, FileSpreadsheet, Plus, Save, Trophy } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useAuth } from "@/context/AuthContext";
+
+const emptyExam = {
+  name: "",
+  class_id: "",
+  subject: "",
+  syllabus: "",
+  exam_date: "",
+  time: "",
+};
+
+const STATUS_LABEL = {
+  scheduled: "Scheduled",
+  under_correction: "Under correction",
+  results_out: "Results are out",
+};
+
+const STATUS_STYLE = {
+  scheduled: "bg-[#FBE9E3] text-[#E05236]",
+  under_correction: "bg-amber-50 text-amber-700",
+  results_out: "bg-[#E5EFE8] text-[#4A7C59]",
+};
 
 export default function Exams() {
   const { user } = useAuth();
   const [exams, setExams] = useState([]);
+  const [classes, setClasses] = useState([]);
   const [marks, setMarks] = useState([]);
   const [students, setStudents] = useState([]);
-  const [activeExam, setActiveExam] = useState(null);
-  const [entry, setEntry] = useState({ student_id: "", subject: "", marks: "", max_marks: 100 });
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const [activeExam, setActiveExam] = useState("");
+  const [examForm, setExamForm] = useState(emptyExam);
+  const [bulkMarks, setBulkMarks] = useState({});
+  const [savingExam, setSavingExam] = useState(false);
+  const [savingMarks, setSavingMarks] = useState(false);
+
+  const canManage = ["teacher", "school_admin", "super_admin"].includes(user?.role);
+
+  const load = async () => {
+    const [e, m, s, c] = await Promise.all([api.get("/exams"), api.get("/marks"), api.get("/students"), api.get("/classes")]);
+    setExams(e.data);
+    setMarks(m.data);
+    setStudents(s.data);
+    setClasses(c.data);
+    setActiveExam((current) => current || e.data[0]?.id || "");
+    setExamForm((v) => ({ ...v, class_id: v.class_id || c.data[0]?.id || "" }));
+  };
 
   useEffect(() => {
-    Promise.all([api.get("/exams"), api.get("/marks"), api.get("/students")]).then(([e, m, s]) => {
-      setExams(e.data);
-      setMarks(m.data);
-      setStudents(s.data);
-      if (e.data[0]) setActiveExam(e.data[0].id);
-    });
+    load().catch(() => toast.error("Unable to load exams"));
   }, []);
 
   const exam = exams.find((e) => e.id === activeExam);
-  const examMarks = marks.filter((m) => m.exam_id === activeExam);
-  const canEnterMarks = ["teacher", "school_admin", "super_admin"].includes(user?.role);
-
-  const entryStudents = useMemo(() => {
-    if (!exam?.class_id) return students;
+  const examStudents = useMemo(() => {
+    if (!exam?.class_id) return [];
     return students.filter((s) => s.class_id === exam.class_id);
   }, [exam?.class_id, students]);
+  const examMarks = useMemo(() => marks.filter((m) => m.exam_id === activeExam), [marks, activeExam]);
+  const canShowResults = canManage || exam?.status === "results_out";
+  const chartMarks = useMemo(() => canShowResults ? examMarks : [], [canShowResults, examMarks]);
 
   useEffect(() => {
-    if (!canEnterMarks || !exam) return;
-    setEntry((prev) => ({
-      ...prev,
-      student_id: entryStudents[0]?.id || "",
-      subject: exam.subjects?.[0] || "",
-      marks: "",
-      max_marks: 100,
-    }));
-    setMessage("");
-  }, [activeExam, canEnterMarks, entryStudents, exam]);
-
-  useEffect(() => {
-    if (!canEnterMarks || !activeExam || !entry.student_id || !entry.subject) return;
-    const existing = marks.find((m) =>
-      m.exam_id === activeExam && m.student_id === entry.student_id && m.subject === entry.subject
-    );
-    setEntry((prev) => ({
-      ...prev,
-      marks: existing ? String(existing.marks) : "",
-      max_marks: existing?.max_marks || prev.max_marks || 100,
-    }));
-  }, [activeExam, canEnterMarks, entry.student_id, entry.subject, marks]);
-
-  const saveResult = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    const scored = Number(entry.marks);
-    const maximum = Number(entry.max_marks);
-
-    if (!activeExam || !entry.student_id || !entry.subject || Number.isNaN(scored) || Number.isNaN(maximum)) {
-      setMessage("Please select exam, student, subject and enter valid marks.");
-      return;
-    }
-    if (maximum <= 0 || scored < 0 || scored > maximum) {
-      setMessage("Marks must be between 0 and the maximum marks.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await api.post("/marks", {
-        exam_id: activeExam,
-        student_id: entry.student_id,
-        subject: entry.subject,
-        marks: scored,
-        max_marks: maximum,
-      });
-      const { data } = await api.get("/marks");
-      setMarks(data);
-      setMessage("Result saved successfully.");
-    } catch (err) {
-      setMessage(err?.response?.data?.detail || "Unable to save result. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
+    if (!exam || !canManage) return;
+    const next = {};
+    examStudents.forEach((student) => {
+      const existing = marks.find((m) => m.exam_id === exam.id && m.student_id === student.id && m.subject === exam.subject);
+      next[student.id] = existing ? String(existing.marks) : "";
+    });
+    setBulkMarks(next);
+  }, [exam, examStudents, marks, canManage]);
 
   const ranks = useMemo(() => {
     const byStudent = {};
-    examMarks.forEach((m) => {
-      byStudent[m.student_id] = byStudent[m.student_id] || { total: 0, max: 0, subjects: {} };
+    chartMarks.forEach((m) => {
+      byStudent[m.student_id] = byStudent[m.student_id] || { total: 0, max: 0 };
       byStudent[m.student_id].total += m.marks;
       byStudent[m.student_id].max += m.max_marks;
-      byStudent[m.student_id].subjects[m.subject] = m.marks;
     });
     return Object.entries(byStudent)
       .map(([sid, v]) => {
@@ -106,7 +88,6 @@ export default function Exams() {
           id: sid,
           name: st?.name || "-",
           roll: st?.roll_no || "",
-          class_id: st?.class_id || "",
           total: v.total,
           max: v.max,
           pct: Math.round(pct * 10) / 10,
@@ -115,29 +96,77 @@ export default function Exams() {
       })
       .sort((a, b) => b.pct - a.pct)
       .map((r, i) => ({ ...r, rank: i + 1 }));
-  }, [examMarks, students]);
-
-  const myId = user?.role === "student" ? user?.meta?.student_id : null;
-  const myKidIds = useMemo(() => {
-    if (user?.role !== "parent") return [];
-    return students.filter((s) => s.parent_email === user.email).map((s) => s.id);
-  }, [students, user?.email, user?.role]);
-  const visibleRanks = useMemo(() => {
-    if (myId) return ranks.filter((r) => r.id === myId);
-    if (myKidIds.length) return ranks.filter((r) => myKidIds.includes(r.id));
-    if (canEnterMarks) return ranks;
-    return ranks.slice(0, 10);
-  }, [ranks, myId, myKidIds, canEnterMarks]);
+  }, [chartMarks, students]);
 
   const subjAvg = useMemo(() => {
     const acc = {};
-    examMarks.forEach((m) => {
+    chartMarks.forEach((m) => {
       acc[m.subject] = acc[m.subject] || { total: 0, n: 0 };
       acc[m.subject].total += (m.marks / m.max_marks) * 100;
       acc[m.subject].n += 1;
     });
     return Object.entries(acc).map(([subject, v]) => ({ subject, avg: Math.round(v.total / v.n) }));
-  }, [examMarks]);
+  }, [chartMarks]);
+
+  const createExam = async (e) => {
+    e.preventDefault();
+    setSavingExam(true);
+    try {
+      const payload = {
+        ...examForm,
+        subjects: [examForm.subject],
+        start_date: examForm.exam_date,
+        end_date: examForm.exam_date,
+      };
+      const { data } = await api.post("/exams", payload);
+      setExamForm({ ...emptyExam, class_id: classes[0]?.id || "" });
+      await load();
+      setActiveExam(data.id);
+      toast.success("Exam post created");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to create exam");
+    } finally {
+      setSavingExam(false);
+    }
+  };
+
+  const updateStatus = async (status) => {
+    if (!exam) return;
+    try {
+      const { data } = await api.patch(`/exams/${exam.id}/status`, { status });
+      setExams((items) => items.map((item) => item.id === data.id ? data : item));
+      toast.success(STATUS_LABEL[status]);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to update exam");
+    }
+  };
+
+  const publishMarks = async (e) => {
+    e.preventDefault();
+    if (!exam) return;
+    setSavingMarks(true);
+    try {
+      const entries = Object.entries(bulkMarks).filter(([, value]) => value !== "");
+      if (!entries.length) {
+        toast.error("Enter marks for at least one student");
+        return;
+      }
+      await Promise.all(entries.map(([student_id, value]) => api.post("/marks", {
+        exam_id: exam.id,
+        student_id,
+        subject: exam.subject,
+        marks: Number(value),
+        max_marks: 100,
+      })));
+      await api.patch(`/exams/${exam.id}/status`, { status: "results_out" });
+      await load();
+      toast.success("Marks submitted. Results are out.");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to submit marks");
+    } finally {
+      setSavingMarks(false);
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="exams-page">
@@ -145,32 +174,60 @@ export default function Exams() {
         <div>
           <div className="label-eyebrow">Performance</div>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Exams & Report Cards</h1>
+          <p className="mt-1 text-sm text-neutral-500">Create exam posts, correct papers, and publish results.</p>
         </div>
-        <select
-          value={activeExam || ""}
-          onChange={(e) => setActiveExam(e.target.value)}
-          className="px-4 py-2.5 rounded-full bg-white border border-black/10 text-sm"
-          data-testid="exam-select"
-        >
+        <select value={activeExam || ""} onChange={(e) => setActiveExam(e.target.value)} className="px-4 py-2.5 rounded-full bg-white border border-black/10 text-sm" data-testid="exam-select">
           {exams.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
       </div>
 
-      {exam && (
+      {canManage && (
+        <form onSubmit={createExam} className="card-soft p-6 space-y-4" data-testid="exam-create-form">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#FBE9E3] text-[#E05236] grid place-items-center"><Plus className="w-5 h-5" /></div>
+            <div>
+              <div className="label-eyebrow">New exam post</div>
+              <h3 className="font-display text-xl font-semibold">Create Exam</h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+            <input required value={examForm.name} onChange={(e) => setExamForm((v) => ({ ...v, name: e.target.value }))} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm xl:col-span-2" placeholder="Exam name" />
+            <select required value={examForm.class_id} onChange={(e) => setExamForm((v) => ({ ...v, class_id: e.target.value }))} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <input required value={examForm.subject} onChange={(e) => setExamForm((v) => ({ ...v, subject: e.target.value }))} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Subject" />
+            <input required type="date" value={examForm.exam_date} onChange={(e) => setExamForm((v) => ({ ...v, exam_date: e.target.value }))} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" />
+            <input required value={examForm.time} onChange={(e) => setExamForm((v) => ({ ...v, time: e.target.value }))} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Time" />
+            <textarea value={examForm.syllabus} onChange={(e) => setExamForm((v) => ({ ...v, syllabus: e.target.value }))} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm md:col-span-2 xl:col-span-6 resize-none" rows={2} placeholder="Syllabus / portions" />
+          </div>
+          <button type="submit" disabled={savingExam} className="btn-primary text-sm py-2.5 disabled:opacity-60"><Save className="w-4 h-4" /> {savingExam ? "Creating..." : "Create Exam Post"}</button>
+        </form>
+      )}
+
+      {exam ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="card-soft p-6 lg:col-span-2">
-            <div className="flex items-center gap-3">
-              <FileSpreadsheet className="w-5 h-5 text-[#E05236]" />
-              <h3 className="font-display text-xl font-semibold">{exam.name}</h3>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <FileSpreadsheet className="w-5 h-5 text-[#E05236]" />
+                  <h3 className="font-display text-xl font-semibold">{exam.name}</h3>
+                </div>
+                <p className="text-sm text-neutral-500 mt-1">{exam.subject} - {exam.exam_date || exam.start_date} - {exam.time || "Time TBA"}</p>
+              </div>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_STYLE[exam.status || "scheduled"]}`}>{STATUS_LABEL[exam.status || "scheduled"]}</span>
             </div>
-            <p className="text-sm text-neutral-500 mt-1">
-              {exam.type.replace("_", " ")} - {exam.start_date} to {exam.end_date}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
-              {(exam.subjects || []).map((s) => (
-                <span key={s} className="px-2.5 py-1 rounded-full bg-black/[0.04] text-neutral-700 font-medium">{s}</span>
-              ))}
-            </div>
+            {exam.syllabus && <p className="mt-4 text-sm text-neutral-700 leading-relaxed">{exam.syllabus}</p>}
+            {canManage && (
+              <div className="mt-5 flex flex-wrap gap-2">
+                {(exam.status || "scheduled") === "scheduled" && (
+                  <button onClick={() => updateStatus("under_correction")} className="btn-primary text-sm py-2.5" data-testid="mark-exam-complete"><CheckCircle2 className="w-4 h-4" /> Mark exam completed</button>
+                )}
+                {exam.status === "under_correction" && (
+                  <button onClick={() => updateStatus("scheduled")} className="btn-ghost text-sm py-2.5">Move back to scheduled</button>
+                )}
+              </div>
+            )}
             <div className="h-56 mt-6">
               <ResponsiveContainer>
                 <BarChart data={subjAvg}>
@@ -184,102 +241,34 @@ export default function Exams() {
             </div>
           </div>
 
-          {canEnterMarks ? (
-            <form onSubmit={saveResult} className="card-soft p-6 space-y-4" data-testid="marks-entry-form">
-              <div>
-                <div className="label-eyebrow">Result entry</div>
-                <h3 className="mt-1 font-display text-xl font-semibold">Enter Student Marks</h3>
+          {canManage && exam.status === "under_correction" ? (
+            <form onSubmit={publishMarks} className="card-soft p-6 space-y-3" data-testid="bulk-marks-form">
+              <div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-[#E05236]" /><div className="label-eyebrow">Marks entry</div></div>
+              <h3 className="font-display text-xl font-semibold">Corrected Scripts</h3>
+              <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                {examStudents.map((s) => (
+                  <label key={s.id} className="flex items-center gap-3 rounded-lg border border-black/5 p-2">
+                    <span className="flex-1 min-w-0 text-sm truncate">{s.name} <span className="text-xs text-neutral-500">Roll {s.roll_no}</span></span>
+                    <input type="number" min="0" max="100" step="0.5" value={bulkMarks[s.id] || ""} onChange={(e) => setBulkMarks((v) => ({ ...v, [s.id]: e.target.value }))} className="w-20 px-2 py-1.5 rounded-lg border border-black/10 text-sm" placeholder="/100" />
+                  </label>
+                ))}
               </div>
-
-              <label className="block text-sm font-medium">
-                Student
-                <select
-                  value={entry.student_id}
-                  onChange={(e) => setEntry((v) => ({ ...v, student_id: e.target.value }))}
-                  className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm"
-                  data-testid="marks-student-select"
-                >
-                  {entryStudents.map((s) => <option key={s.id} value={s.id}>{s.name} - Roll {s.roll_no}</option>)}
-                </select>
-              </label>
-
-              <label className="block text-sm font-medium">
-                Subject
-                <select
-                  value={entry.subject}
-                  onChange={(e) => setEntry((v) => ({ ...v, subject: e.target.value }))}
-                  className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm"
-                  data-testid="marks-subject-select"
-                >
-                  {(exam.subjects || []).map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </label>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block text-sm font-medium">
-                  Marks
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={entry.marks}
-                    onChange={(e) => setEntry((v) => ({ ...v, marks: e.target.value }))}
-                    className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm"
-                    placeholder="0"
-                    data-testid="marks-input"
-                  />
-                </label>
-                <label className="block text-sm font-medium">
-                  Max
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={entry.max_marks}
-                    onChange={(e) => setEntry((v) => ({ ...v, max_marks: e.target.value }))}
-                    className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm"
-                    data-testid="max-marks-input"
-                  />
-                </label>
-              </div>
-
-              {message && (
-                <div className={`text-sm ${message.includes("success") ? "text-[#4A7C59]" : "text-[#E05236]"}`} data-testid="marks-entry-message">
-                  {message}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={saving || !entryStudents.length}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-[#0A1128] text-white px-4 py-2.5 text-sm font-medium hover:bg-[#111B3D] disabled:opacity-60"
-                data-testid="save-marks-button"
-              >
-                <Save className="w-4 h-4" />
-                {saving ? "Saving..." : "Save Result"}
-              </button>
+              <button type="submit" disabled={savingMarks} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60" data-testid="publish-results"><Save className="w-4 h-4" /> {savingMarks ? "Submitting..." : "Submit Marks & Publish Results"}</button>
             </form>
           ) : (
             <div className="card-soft p-6 !bg-[#FBE9E3]">
-              <div className="flex items-center gap-2 text-[#E05236]">
-                <Trophy className="w-5 h-5" />
-                <div className="label-eyebrow text-[#E05236]/80">Top performers</div>
-              </div>
-              <div className="mt-3 space-y-2">
-                {ranks.slice(0, 5).map((r) => (
-                  <div key={r.id} className="flex items-center gap-3 bg-white/70 rounded-xl px-3 py-2">
-                    <div className="w-7 h-7 rounded-full bg-[#0A1128] text-white text-xs grid place-items-center font-semibold">{r.rank}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{r.name}</div>
-                      <div className="text-xs text-neutral-500">Roll {r.roll}</div>
-                    </div>
-                    <div className="text-sm font-semibold">{r.pct}%</div>
-                  </div>
-                ))}
-              </div>
+              <div className="flex items-center gap-2 text-[#E05236]"><Trophy className="w-5 h-5" /><div className="label-eyebrow text-[#E05236]/80">Status</div></div>
+              <h3 className="mt-3 font-display text-xl font-semibold">{STATUS_LABEL[exam.status || "scheduled"]}</h3>
+              <p className="mt-2 text-sm text-neutral-700">
+                {(exam.status || "scheduled") === "scheduled" && "Exam post is visible to students and parents."}
+                {exam.status === "under_correction" && "Exam is completed and answer scripts are under correction."}
+                {exam.status === "results_out" && "Marks have been published for students and parents."}
+              </p>
             </div>
           )}
         </div>
+      ) : (
+        <div className="card-soft p-8 text-sm text-neutral-500">No exam posts yet.</div>
       )}
 
       <div className="card-soft overflow-hidden">
@@ -295,10 +284,9 @@ export default function Exams() {
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
-              {visibleRanks.length === 0 && (
-                <tr><td colSpan={5} className="px-6 py-12 text-center text-neutral-500">No marks yet.</td></tr>
-              )}
-              {visibleRanks.map((r) => (
+              {!canShowResults && <tr><td colSpan={5} className="px-6 py-12 text-center text-neutral-500">Results are not published yet.</td></tr>}
+              {canShowResults && ranks.length === 0 && <tr><td colSpan={5} className="px-6 py-12 text-center text-neutral-500">No marks yet.</td></tr>}
+              {canShowResults && ranks.map((r) => (
                 <tr key={r.id} className="hover:bg-black/[0.02]" data-testid={`rank-row-${r.roll}`}>
                   <td className="px-6 py-4 font-semibold">#{r.rank}</td>
                   <td className="px-6 py-4">{r.name} <span className="text-xs text-neutral-500">(Roll {r.roll})</span></td>
