@@ -2,21 +2,25 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Calendar, Check, X, Clock, Save } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Attendance() {
+  const { user } = useAuth();
   const [classes, setClasses] = useState([]);
   const [classId, setClassId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [students, setStudents] = useState([]);
+  const [allAttendance, setAllAttendance] = useState([]);
   const [records, setRecords] = useState({}); // id -> status
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.get("/classes").then(({ data }) => {
-      setClasses(data);
-      if (data[0]) setClassId(data[0].id);
+    Promise.all([api.get("/classes"), api.get("/attendance")]).then(([c, a]) => {
+      setClasses(c.data);
+      setAllAttendance(a.data);
+      if (user?.role === "teacher" && c.data[0]) setClassId(c.data[0].id);
     });
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     if (!classId) return;
@@ -65,10 +69,28 @@ export default function Attendance() {
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Attendance</h1>
           <p className="mt-1 text-sm text-neutral-500">Tap a student to update status. Saved automatically when you click save.</p>
         </div>
-        <button onClick={save} className="btn-primary text-sm py-2.5" data-testid="save-attendance"><Save className="w-4 h-4" /> Save</button>
+        {classId && <button onClick={save} className="btn-primary text-sm py-2.5" data-testid="save-attendance"><Save className="w-4 h-4" /> Save</button>}
       </div>
 
-      <div className="card-soft p-5 flex flex-wrap items-center gap-4">
+      {user?.role !== "teacher" && !classId && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {classes.map((c) => {
+            const rows = allAttendance.filter((a) => a.class_id === c.id && a.date === date);
+            const present = rows.filter((a) => a.status === "present").length;
+            const pct = rows.length ? Math.round((present / rows.length) * 100) : 0;
+            return (
+              <button key={c.id} type="button" onClick={() => setClassId(c.id)} className="card-soft p-5 text-left hover:-translate-y-0.5 transition">
+                <div className="font-display text-lg font-semibold">{c.name}</div>
+                <div className="mt-1 text-sm text-neutral-500">{c.students_count || 0} students</div>
+                <div className="mt-4 text-3xl font-display font-semibold">{pct}%</div>
+                <div className="mt-1 text-xs text-neutral-500">attendance on {new Date(date).toLocaleDateString("en-IN")}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {classId && <div className="card-soft p-5 flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2 px-3 py-2 rounded-full border border-black/10 bg-white">
           <Calendar className="w-4 h-4 text-neutral-400" />
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-sm bg-transparent outline-none" data-testid="attendance-date" />
@@ -76,14 +98,15 @@ export default function Attendance() {
         <select value={classId} onChange={(e) => setClassId(e.target.value)} className="px-4 py-2 rounded-full bg-white border border-black/10 text-sm" data-testid="attendance-class">
           {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        {user?.role !== "teacher" && <button onClick={() => setClassId("")} className="btn-ghost text-sm py-2">All classes</button>}
         <div className="ml-auto flex gap-2 text-xs">
           <span className="px-2.5 py-1 rounded-full bg-[#E5EFE8] text-[#4A7C59] font-medium">Present {summary.present}</span>
           <span className="px-2.5 py-1 rounded-full bg-[#FBE9E3] text-[#E05236] font-medium">Absent {summary.absent}</span>
           <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">Late {summary.late}</span>
         </div>
-      </div>
+      </div>}
 
-      <div className="card-soft p-2">
+      {classId && <div className="card-soft p-2">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 p-2">
           {loading && <div className="p-6 text-sm text-neutral-500">Loading…</div>}
           {!loading && students.length === 0 && <div className="p-6 text-sm text-neutral-500">No students in this class.</div>}
@@ -105,7 +128,7 @@ export default function Attendance() {
             );
           })}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

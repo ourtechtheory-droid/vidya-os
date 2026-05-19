@@ -10,14 +10,16 @@ export default function Fees() {
   const { user } = useAuth();
   const [fees, setFees] = useState([]);
   const [students, setStudents] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState("");
   const [paying, setPaying] = useState(null);
   const [method, setMethod] = useState("upi");
   const [loading, setLoading] = useState(true);
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get("/fees"), api.get("/students")]).then(([f, s]) => {
-      setFees(f.data); setStudents(s.data);
+    Promise.all([api.get("/fees"), api.get("/students"), api.get("/classes")]).then(([f, s, c]) => {
+      setFees(f.data); setStudents(s.data); setClasses(c.data);
     }).finally(() => setLoading(false));
   };
   useEffect(load, []);
@@ -29,7 +31,12 @@ export default function Fees() {
     };
   }, [fees]);
 
-  const studentName = (id) => students.find((s) => s.id === id)?.name || "—";
+  const studentName = (id) => students.find((s) => s.id === id)?.name || "-";
+  const visibleStudentIds = useMemo(() => {
+    if (!selectedClassId || ["parent", "student"].includes(user?.role)) return new Set(students.map((s) => s.id));
+    return new Set(students.filter((s) => s.class_id === selectedClassId).map((s) => s.id));
+  }, [selectedClassId, students, user?.role]);
+  const visibleFees = useMemo(() => fees.filter((f) => visibleStudentIds.has(f.student_id)), [fees, visibleStudentIds]);
 
   const pay = async () => {
     if (!paying) return;
@@ -66,7 +73,27 @@ export default function Fees() {
         </div>
       </div>
 
-      <div className="card-soft overflow-hidden">
+      {!["parent", "student"].includes(user?.role) && !selectedClassId && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {classes.map((c) => {
+            const ids = new Set(students.filter((s) => s.class_id === c.id).map((s) => s.id));
+            const classFees = fees.filter((f) => ids.has(f.student_id));
+            const pending = classFees.filter((f) => f.status === "pending").reduce((sum, f) => sum + f.amount, 0);
+            return (
+              <button key={c.id} type="button" onClick={() => setSelectedClassId(c.id)} className="card-soft p-5 text-left hover:-translate-y-0.5 transition">
+                <div className="font-display text-lg font-semibold">{c.name}</div>
+                <div className="mt-1 text-sm text-neutral-500">{ids.size} students</div>
+                <div className="mt-3 text-2xl font-display font-semibold text-[#E05236]">{fmtINR(pending)}</div>
+                <div className="mt-1 text-xs text-neutral-500">pending dues</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedClassId && <button onClick={() => setSelectedClassId("")} className="btn-ghost text-sm py-2.5">All classes</button>}
+
+      {(["parent", "student"].includes(user?.role) || selectedClassId) && <div className="card-soft overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm" data-testid="fees-table">
             <thead className="bg-black/[0.02] text-left text-xs uppercase tracking-wider text-neutral-500">
@@ -81,8 +108,8 @@ export default function Fees() {
             </thead>
             <tbody className="divide-y divide-black/5">
               {loading && <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-500">Loading…</td></tr>}
-              {!loading && fees.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-500">No fee records.</td></tr>}
-              {fees.map((f) => (
+              {!loading && visibleFees.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-500">No fee records.</td></tr>}
+              {visibleFees.map((f) => (
                 <tr key={f.id} className="hover:bg-black/[0.02]" data-testid={`fee-row-${f.id}`}>
                   <td className="px-6 py-4">{studentName(f.student_id)}</td>
                   <td className="px-6 py-4">{f.term} <span className="text-xs text-neutral-400">({f.type})</span></td>
@@ -103,7 +130,7 @@ export default function Fees() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       {/* Pay modal */}
       {paying && (

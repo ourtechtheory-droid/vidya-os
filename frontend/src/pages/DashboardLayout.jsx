@@ -94,13 +94,6 @@ export default function DashboardLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="absolute bottom-4 left-4 right-4 hidden md:block">
-            <div className="card-soft p-4 !bg-[#FBE9E3] border-[#E05236]/10">
-              <div className="font-display font-semibold text-sm">Need help?</div>
-              <div className="text-xs text-neutral-700 mt-1">Talk to AI Saathi for instant answers.</div>
-              <Link to="/app/ai/parent" className="mt-3 inline-flex items-center gap-1 text-xs text-[#E05236] font-medium">Open chatbot →</Link>
-            </div>
-          </div>
         </aside>
 
         {/* Main */}

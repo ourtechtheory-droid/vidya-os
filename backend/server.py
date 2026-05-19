@@ -83,12 +83,30 @@ class StudentCreate(BaseModel):
     address: Optional[str] = None
     house: Optional[str] = None
     category: Optional[str] = None
+    profile_image: Optional[str] = None
 
+
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None
+    roll_no: Optional[str] = None
+    class_id: Optional[str] = None
+    section: Optional[str] = None
+    gender: Optional[Literal["M", "F", "O"]] = None
+    dob: Optional[str] = None
+    parent_email: Optional[EmailStr] = None
+    parent_phone: Optional[str] = None
+    address: Optional[str] = None
+    house: Optional[str] = None
+    category: Optional[str] = None
+    profile_image: Optional[str] = None
 
 class ClassCreate(BaseModel):
-    grade: str
+    grade: Optional[str] = None
     section: Optional[str] = ""
     name: Optional[str] = None
+    number_of_students: Optional[int] = None
+    periods_per_day: Optional[int] = None
+    subjects: List[str] = Field(default_factory=list)
 
 
 class ClassDeleteConfirm(BaseModel):
@@ -103,6 +121,28 @@ class TeacherCreate(BaseModel):
     core_subject: str
     profile_image: Optional[str] = None
 
+
+class TeacherUpdate(BaseModel):
+    name: Optional[str] = None
+    phone_number: Optional[str] = None
+    gender: Optional[Literal["M", "F", "O"]] = None
+    assigned_class_id: Optional[str] = None
+    core_subject: Optional[str] = None
+    profile_image: Optional[str] = None
+
+
+class CalendarEvent(BaseModel):
+    title: str
+    date: str  # YYYY-MM-DD
+    type: Literal["exam", "lesson_plan", "other"] = "other"
+    description: Optional[str] = None
+
+
+class CalendarEventUpdate(BaseModel):
+    title: Optional[str] = None
+    date: Optional[str] = None
+    type: Optional[Literal["exam", "lesson_plan", "other"]] = None
+    description: Optional[str] = None
 
 class AttendanceMark(BaseModel):
     class_id: str
@@ -503,28 +543,36 @@ async def me(user=Depends(get_current_user)):
 # Classes / Students
 # =========================================================
 @api.get("/classes")
-async def list_classes(user=Depends(get_current_user)):
+async def list_classes(unassigned_only: bool = False, user=Depends(get_current_user)):
     profile = await _teacher_profile_for_user(user)
     if profile:
         return await _classes_with_summary({"id": profile.get("assigned_class_id", "")})
-    return await _classes_with_summary({})
+    classes = await _classes_with_summary({})
+    if unassigned_only:
+        classes = [c for c in classes if not c.get("class_teacher")]
+    return classes
 
 
 @api.post("/classes")
 async def create_class(body: ClassCreate, user=Depends(require_roles("super_admin", "school_admin"))):
-    grade = body.grade.strip()
+    grade = (body.grade or body.name or "").strip()
     section = (body.section or "").strip().upper()
-    if not grade:
-        raise HTTPException(400, "Class grade is required")
+    class_name = (body.name or "").strip()
+    if not grade and not class_name:
+        raise HTTPException(400, "Class name is required")
     class_id = f"cls-{re.sub(r'[^A-Za-z0-9]+', '', grade)}{section}"
     existing = await db.classes.find_one({"id": class_id}, {"_id": 0})
     if existing:
         raise HTTPException(400, "Class already exists")
+    subjects = [s.strip() for s in body.subjects if s.strip()]
     c = {
         "id": class_id,
-        "name": body.name or (f"Class {grade}-{section}" if section else f"Class {grade}"),
+        "name": class_name or (f"Class {grade}-{section}" if section else f"Class {grade}"),
         "grade": grade,
         "section": section,
+        "number_of_students": body.number_of_students or 0,
+        "periods_per_day": body.periods_per_day or 0,
+        "subjects": subjects,
         "school_id": user.get("school_id", "default-school"),
         "created_at": now_iso(),
     }
@@ -569,6 +617,9 @@ async def create_teacher(body: TeacherCreate, user=Depends(require_roles("super_
     assigned_class = await db.classes.find_one({"id": body.assigned_class_id}, {"_id": 0})
     if not assigned_class:
         raise HTTPException(404, "Assigned class not found")
+    existing_teacher = await db.teacher_profiles.find_one({"assigned_class_id": body.assigned_class_id}, {"_id": 0})
+    if existing_teacher:
+        raise HTTPException(400, "This class already has an assigned teacher")
 
     base = _slug(body.name)
     domain = "vidyaos.teacher"
@@ -619,6 +670,53 @@ async def create_teacher(body: TeacherCreate, user=Depends(require_roles("super_
     }
 
 
+@api.put("/teachers/{teacher_id}")
+async def update_teacher(teacher_id: str, body: TeacherUpdate, user=Depends(require_roles("super_admin", "school_admin"))):
+    teacher_prof = await db.teacher_profiles.find_one({"id": teacher_id})
+    if not teacher_prof:
+        raise HTTPException(404, "Teacher not found")
+        
+    update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not update_data:
+        return {"ok": True}
+
+    if "assigned_class_id" in update_data:
+        assigned_class = await db.classes.find_one({"id": update_data["assigned_class_id"]}, {"_id": 0})
+        if not assigned_class:
+            raise HTTPException(404, "Assigned class not found")
+        conflict = await db.teacher_profiles.find_one({
+            "assigned_class_id": update_data["assigned_class_id"],
+            "id": {"$ne": teacher_id},
+        }, {"_id": 0})
+        if conflict:
+            raise HTTPException(400, "This class already has an assigned teacher")
+        
+    await db.teacher_profiles.update_one({"id": teacher_id}, {"$set": update_data})
+    
+    # Sync with users collection
+    user_update = {}
+    if "name" in update_data: user_update["name"] = update_data["name"]
+    if "profile_image" in update_data: user_update["avatar"] = update_data["profile_image"]
+    if "phone_number" in update_data: user_update["meta.phone_number"] = update_data["phone_number"]
+    if "assigned_class_id" in update_data: user_update["meta.assigned_class_id"] = update_data["assigned_class_id"]
+    if "gender" in update_data: user_update["meta.gender"] = update_data["gender"]
+    if "core_subject" in update_data: user_update["meta.core_subject"] = update_data["core_subject"]
+    
+    if user_update:
+        await db.users.update_one({"id": teacher_prof["user_id"]}, {"$set": user_update})
+        
+    return {"ok": True}
+
+
+@api.delete("/teachers/{teacher_id}")
+async def delete_teacher(teacher_id: str, user=Depends(require_roles("super_admin", "school_admin"))):
+    teacher_prof = await db.teacher_profiles.find_one({"id": teacher_id})
+    if teacher_prof:
+        await db.users.delete_one({"id": teacher_prof["user_id"]})
+        await db.teacher_profiles.delete_one({"id": teacher_id})
+    return {"ok": True}
+
+
 @api.post("/students")
 async def create_student(body: StudentCreate, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
     s = body.model_dump()
@@ -639,7 +737,7 @@ async def create_student(body: StudentCreate, user=Depends(require_roles("super_
 
 
 @api.get("/students")
-async def list_students(class_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_students(class_id: Optional[str] = None, skip: int = 0, limit: int = 100, user=Depends(get_current_user)):
     q: Dict[str, Any] = {}
     if class_id:
         q["class_id"] = class_id
@@ -651,7 +749,53 @@ async def list_students(class_id: Optional[str] = None, user=Depends(get_current
         q["parent_email"] = user["email"]
     if user["role"] == "student":
         q["id"] = user.get("meta", {}).get("student_id", "")
-    return await db.students.find(q, {"_id": 0}).to_list(2000)
+    return await db.students.find(q, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
+
+
+@api.put("/students/{student_id}")
+async def update_student(student_id: str, body: StudentUpdate, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+    student = await db.students.find_one({"id": student_id})
+    if not student:
+        raise HTTPException(404, "Student not found")
+    assigned_profile = await _teacher_profile_for_user(user)
+    if assigned_profile:
+        assigned_class_id = assigned_profile.get("assigned_class_id")
+        if student.get("class_id") != assigned_class_id:
+            raise HTTPException(403, "Teachers can edit students only in their assigned class")
+        
+    update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not update_data:
+        return {"ok": True}
+    if assigned_profile and update_data.get("class_id") and update_data["class_id"] != assigned_profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers cannot move students out of their assigned class")
+    if update_data.get("class_id"):
+        cls = await db.classes.find_one({"id": update_data["class_id"]}, {"_id": 0})
+        if not cls:
+            raise HTTPException(404, "Class not found")
+        if "section" not in update_data:
+            update_data["section"] = cls.get("section", "")
+    if user["role"] in ("super_admin", "school_admin"):
+        update_data["admin_edited"] = True
+        update_data["admin_edited_by"] = user["name"]
+        update_data["admin_edited_at"] = now_iso()
+        
+    await db.students.update_one({"id": student_id}, {"$set": update_data})
+    return {"ok": True}
+
+
+@api.delete("/students/{student_id}")
+async def delete_student(student_id: str, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    if not student:
+        raise HTTPException(404, "Student not found")
+    assigned_profile = await _teacher_profile_for_user(user)
+    if assigned_profile and student.get("class_id") != assigned_profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can delete students only in their assigned class")
+    await db.students.delete_one({"id": student_id})
+    await db.attendance.delete_many({"student_id": student_id})
+    await db.marks.delete_many({"student_id": student_id})
+    await db.fees.delete_many({"student_id": student_id})
+    return {"ok": True}
 
 
 @api.get("/students/{student_id}")
@@ -860,30 +1004,102 @@ async def list_circulars(user=Depends(get_current_user)):
 
 
 # =========================================================
+# Calendar Events
+# =========================================================
+@api.post("/calendar")
+async def create_calendar_event(body: CalendarEvent, user=Depends(require_roles("teacher", "school_admin", "super_admin"))):
+    ev = body.model_dump()
+    ev["id"] = str(uuid.uuid4())
+    ev["user_id"] = user["id"]
+    ev["created_at"] = now_iso()
+    await db.calendar_events.insert_one(ev)
+    return {k: v for k, v in ev.items() if k != "_id"}
+
+
+@api.get("/calendar")
+async def list_calendar_events(user=Depends(get_current_user)):
+    q = {}
+    if user["role"] == "teacher":
+        q["user_id"] = user["id"]
+    return await db.calendar_events.find(q, {"_id": 0}).sort("date", 1).to_list(1000)
+
+
+@api.put("/calendar/{event_id}")
+async def update_calendar_event(event_id: str, body: CalendarEventUpdate, user=Depends(require_roles("teacher", "school_admin", "super_admin"))):
+    q = {"id": event_id}
+    if user["role"] == "teacher":
+        q["user_id"] = user["id"]
+    update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not update_data:
+        return {"ok": True}
+    update_data["updated_at"] = now_iso()
+    res = await db.calendar_events.update_one(q, {"$set": update_data})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Event not found or not authorized")
+    return await db.calendar_events.find_one({"id": event_id}, {"_id": 0})
+
+
+@api.delete("/calendar/{event_id}")
+async def delete_calendar_event(event_id: str, user=Depends(require_roles("teacher", "school_admin", "super_admin"))):
+    q = {"id": event_id}
+    if user["role"] == "teacher":
+        q["user_id"] = user["id"]
+    res = await db.calendar_events.delete_one(q)
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Event not found or not authorized")
+    return {"ok": True}
+
+
+# =========================================================
 # Dashboard stats
 # =========================================================
 @api.get("/dashboard/stats")
 async def dashboard_stats(user=Depends(get_current_user)):
-    students_count = await db.students.count_documents({})
+    profile = await _teacher_profile_for_user(user)
+    
+    # Role-based query scoping
+    student_query = {}
+    fee_query = {}
+    att_query = {}
+    mark_query = {}
+    if profile:
+        class_id = profile.get("assigned_class_id")
+        student_query = {"class_id": class_id}
+        class_student_ids = [s["id"] for s in await db.students.find({"class_id": class_id}, {"_id": 0, "id": 1}).to_list(None)]
+        fee_query = {"student_id": {"$in": class_student_ids}}
+        att_query = {"class_id": class_id}
+        mark_query = {"student_id": {"$in": class_student_ids}}
+
+    students_count = await db.students.count_documents(student_query)
     teachers_count = await db.users.count_documents({"role": "teacher"})
     classes_count = await db.classes.count_documents({})
-    fees_paid = await db.fees.count_documents({"status": "paid"})
-    fees_pending = await db.fees.count_documents({"status": "pending"})
+    
+    fees_paid = await db.fees.count_documents({**fee_query, "status": "paid"})
+    fees_pending = await db.fees.count_documents({**fee_query, "status": "pending"})
+    
     fees_paid_amt_cur = db.fees.aggregate([
-        {"$match": {"status": "paid"}}, {"$group": {"_id": None, "s": {"$sum": "$amount"}}}
+        {"$match": {**fee_query, "status": "paid"}}, {"$group": {"_id": None, "s": {"$sum": "$amount"}}}
     ])
     fees_paid_amt = 0
     async for d in fees_paid_amt_cur:
         fees_paid_amt = d["s"]
+        
     fees_pending_amt_cur = db.fees.aggregate([
-        {"$match": {"status": "pending"}}, {"$group": {"_id": None, "s": {"$sum": "$amount"}}}
+        {"$match": {**fee_query, "status": "pending"}}, {"$group": {"_id": None, "s": {"$sum": "$amount"}}}
     ])
     fees_pending_amt = 0
     async for d in fees_pending_amt_cur:
         fees_pending_amt = d["s"]
 
-    # attendance by date (last 7 days mock)
-    att = await db.attendance.find({}, {"_id": 0}).to_list(5000)
+    # Today's attendance specific to role
+    today_str = now_iso()[:10]
+    today_att = await db.attendance.find({**att_query, "date": today_str}).to_list(None)
+    today_present = sum(1 for a in today_att if a["status"] == "present")
+    today_total = len(today_att) or students_count
+    today_present_rate = round((today_present / today_total) * 100, 1) if today_total > 0 else 0
+
+    # attendance by date (last 14 days)
+    att = await db.attendance.find(att_query, {"_id": 0}).to_list(5000)
     by_date: Dict[str, Dict[str, int]] = {}
     for a in att:
         d = a["date"]
@@ -896,12 +1112,40 @@ async def dashboard_stats(user=Depends(get_current_user)):
 
     # subject performance (avg from marks)
     pipe = [
+        {"$match": mark_query},
         {"$group": {"_id": "$subject", "avg": {"$avg": {"$multiply": [{"$divide": ["$marks", "$max_marks"]}, 100]}}}},
         {"$sort": {"avg": -1}},
     ]
     subj = []
     async for d in db.marks.aggregate(pipe):
         subj.append({"subject": d["_id"], "avg": round(d["avg"], 1)})
+
+    merit_pipe = [
+        {"$match": mark_query},
+        {"$group": {"_id": "$student_id", "marks": {"$sum": "$marks"}, "max_marks": {"$sum": "$max_marks"}}},
+        {"$project": {"pct": {"$multiply": [{"$divide": ["$marks", "$max_marks"]}, 100]}}},
+        {"$bucket": {
+            "groupBy": "$pct",
+            "boundaries": [0, 40, 60, 75, 90, 101],
+            "default": "Other",
+            "output": {"count": {"$sum": 1}, "avg": {"$avg": "$pct"}},
+        }},
+    ]
+    merit_labels = {
+        0: "Below 40%",
+        40: "40-59%",
+        60: "60-74%",
+        75: "75-89%",
+        90: "90%+",
+    }
+    merit_breakdown = []
+    merit_percentages = []
+    async for d in db.marks.aggregate(merit_pipe):
+        label = merit_labels.get(d["_id"], str(d["_id"]))
+        avg = round(d.get("avg") or 0, 1)
+        merit_breakdown.append({"range": label, "count": d.get("count", 0), "avg": avg})
+        merit_percentages.append(avg)
+    merit_percentage = round(sum(merit_percentages) / len(merit_percentages), 1) if merit_percentages else 0
 
     teacher_context = None
     profile = await _teacher_profile_for_user(user)
@@ -932,6 +1176,14 @@ async def dashboard_stats(user=Depends(get_current_user)):
             "fees_paid": fees_paid, "fees_pending": fees_pending,
             "fees_paid_amount": fees_paid_amt, "fees_pending_amount": fees_pending_amt,
         },
+        "today_attendance": {
+            "date": today_str,
+            "present": today_present,
+            "total": today_total,
+            "present_rate": today_present_rate,
+        },
+        "merit_percentage": merit_percentage,
+        "merit_breakdown": merit_breakdown,
         "attendance_trend": attendance_trend,
         "subject_performance": subj,
         "teacher_context": teacher_context,

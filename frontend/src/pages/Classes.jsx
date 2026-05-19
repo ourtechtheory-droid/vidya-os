@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Save, School, Trash2, X } from "lucide-react";
+import { ChevronDown, Save, School, Trash2, X } from "lucide-react";
 
 const CONFIRM_SENTENCES = [
   "I understand this class will be deleted from VidyaOS.",
@@ -14,7 +14,10 @@ const CONFIRM_SENTENCES = [
 export default function Classes() {
   const [classes, setClasses] = useState([]);
   const [grade, setGrade] = useState("");
-  const [section, setSection] = useState("");
+  const [studentCount, setStudentCount] = useState("");
+  const [periods, setPeriods] = useState("");
+  const [subjects, setSubjects] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [typed, setTyped] = useState("");
@@ -39,9 +42,18 @@ export default function Classes() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post("/classes", { grade, section });
+      await api.post("/classes", {
+        name: grade,
+        grade,
+        number_of_students: Number(studentCount || 0),
+        periods_per_day: Number(periods || 0),
+        subjects: subjects.split(",").map((s) => s.trim()).filter(Boolean),
+      });
       setGrade("");
-      setSection("");
+      setStudentCount("");
+      setPeriods("");
+      setSubjects("");
+      setCreateOpen(false);
       await load();
       toast.success("Class created");
     } catch (err) {
@@ -81,23 +93,41 @@ export default function Classes() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <form onSubmit={create} className="card-soft p-6 space-y-4">
-          <div>
-            <div className="label-eyebrow">New class</div>
-            <h3 className="mt-1 font-display text-xl font-semibold">Create Class</h3>
-          </div>
-          <label className="block text-sm font-medium">
-            Class
-            <input required value={grade} onChange={(e) => setGrade(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="1, 2, 3 ... 10" data-testid="class-grade-input" />
-          </label>
-          <label className="block text-sm font-medium">
-            Section
-            <input value={section} onChange={(e) => setSection(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="A, B, C (optional)" data-testid="class-section-input" />
-          </label>
-          <button type="submit" disabled={saving} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60" data-testid="create-class-button">
-            <Save className="w-4 h-4" /> {saving ? "Creating..." : "Create Class"}
+        <div className="card-soft overflow-hidden">
+          <button type="button" onClick={() => setCreateOpen((v) => !v)} className="w-full p-6 flex items-center justify-between text-left">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#FBE9E3] text-[#E05236] grid place-items-center"><School className="w-5 h-5" /></div>
+              <div>
+                <div className="label-eyebrow">New class</div>
+                <h3 className="mt-1 font-display text-xl font-semibold">Create Class</h3>
+              </div>
+            </div>
+            <ChevronDown className={`w-5 h-5 transition ${createOpen ? "rotate-180" : ""}`} />
           </button>
-        </form>
+          {createOpen && (
+            <form onSubmit={create} className="px-6 pb-6 space-y-4">
+              <label className="block text-sm font-medium">
+                Class name
+                <input required value={grade} onChange={(e) => setGrade(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Class 8 A" data-testid="class-grade-input" />
+              </label>
+              <label className="block text-sm font-medium">
+                Number of students
+                <input required type="number" min="0" value={studentCount} onChange={(e) => setStudentCount(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="40" />
+              </label>
+              <label className="block text-sm font-medium">
+                Periods per day
+                <input required type="number" min="1" value={periods} onChange={(e) => setPeriods(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="8" />
+              </label>
+              <label className="block text-sm font-medium">
+                Subjects
+                <textarea required value={subjects} onChange={(e) => setSubjects(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm resize-none" rows={3} placeholder="English, Hindi, Telugu, Maths, Science, Social" />
+              </label>
+              <button type="submit" disabled={saving} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60" data-testid="create-class-button">
+                <Save className="w-4 h-4" /> {saving ? "Creating..." : "Create Class"}
+              </button>
+            </form>
+          )}
+        </div>
 
         <div className="card-soft p-6 lg:col-span-2">
           <div className="label-eyebrow">Available classes</div>
@@ -114,6 +144,12 @@ export default function Classes() {
                     </div>
                     <div className="mt-1 text-xs text-neutral-600">
                       Students: <span className="font-medium text-[#0A1128]">{c.students_count || 0}/20</span>
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-600">
+                      Periods: <span className="font-medium text-[#0A1128]">{c.periods_per_day || "-"}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(c.subjects || []).slice(0, 4).map((subject) => <span key={subject} className="px-2 py-0.5 rounded-full bg-black/[0.04] text-[11px]">{subject}</span>)}
                     </div>
                   </div>
                   <button onClick={() => requestDelete(c)} className="p-2 rounded-lg text-neutral-400 hover:text-[#E05236] hover:bg-[#FBE9E3]" aria-label={`delete ${c.name}`} data-testid={`delete-class-${c.id}`}>

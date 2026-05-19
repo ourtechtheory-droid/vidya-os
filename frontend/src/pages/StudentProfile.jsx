@@ -39,8 +39,9 @@ export default function StudentProfile() {
         {/* Header card */}
         <div className="card-soft p-8 lg:col-span-2 relative overflow-hidden">
           <div className="absolute -top-10 -right-10 w-48 h-48 !bg-[#FBE9E3] rounded-full blur-3xl opacity-70" />
+          {s.admin_edited && <div className="absolute right-6 bottom-6 rotate-[-12deg] rounded-lg border-2 border-[#E05236]/30 px-4 py-2 text-xs font-bold uppercase tracking-widest text-[#E05236]/50">Admin edited</div>}
           <div className="relative flex items-start gap-6">
-            <div className="w-20 h-20 rounded-2xl !bg-[#0A1128] text-white grid place-items-center font-display text-3xl">{s.name.charAt(0)}</div>
+            {s.profile_image ? <img src={s.profile_image} alt="" className="w-20 h-20 rounded-2xl object-cover" /> : <div className="w-20 h-20 rounded-2xl !bg-[#0A1128] text-white grid place-items-center font-display text-3xl">{s.name.charAt(0)}</div>}
             <div className="flex-1">
               <div className="label-eyebrow">Student profile</div>
               <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">{s.name}</h1>
@@ -49,6 +50,7 @@ export default function StudentProfile() {
                 <span className="px-2.5 py-1 rounded-full !bg-[#E5EFE8] text-[#4A7C59] font-medium">Attendance {s.attendance_pct}%</span>
                 <span className="px-2.5 py-1 rounded-full !bg-[#FBE9E3] text-[#E05236] font-medium">{paidFees.length} paid · {pendingFees.length} pending</span>
                 <span className="px-2.5 py-1 rounded-full bg-black/[0.04] text-neutral-700 font-medium">{s.category || "GEN"}</span>
+                {s.admin_edited && <span className="px-2.5 py-1 rounded-full !bg-[#FBE9E3] text-[#E05236] font-medium">Edited by {s.admin_edited_by || "admin"}</span>}
               </div>
             </div>
           </div>

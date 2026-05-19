@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { GraduationCap, KeyRound, Save, Search } from "lucide-react";
+import { Edit3, GraduationCap, KeyRound, Save, Search, Trash2, X } from "lucide-react";
 
 const emptyForm = {
   name: "",
@@ -15,16 +15,19 @@ const emptyForm = {
 export default function Teachers() {
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);
+  const [availableClasses, setAvailableClasses] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [editing, setEditing] = useState(null);
   const [credentials, setCredentials] = useState(null);
   const [q, setQ] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
-    const [t, c] = await Promise.all([api.get("/teachers"), api.get("/classes")]);
+    const [t, c, free] = await Promise.all([api.get("/teachers"), api.get("/classes"), api.get("/classes?unassigned_only=true")]);
     setTeachers(t.data);
     setClasses(c.data);
-    setForm((v) => ({ ...v, assigned_class_id: v.assigned_class_id || c.data[0]?.id || "" }));
+    setAvailableClasses(free.data);
+    setForm((v) => ({ ...v, assigned_class_id: free.data.some((klass) => klass.id === v.assigned_class_id) ? v.assigned_class_id : free.data[0]?.id || "" }));
   };
 
   useEffect(() => {
@@ -42,6 +45,7 @@ export default function Teachers() {
   }, [q, teachers]);
 
   const update = (key, value) => setForm((v) => ({ ...v, [key]: value }));
+  const updateEditing = (key, value) => setEditing((v) => ({ ...v, [key]: value }));
 
   const submit = async (e) => {
     e.preventDefault();
@@ -51,7 +55,6 @@ export default function Teachers() {
       const payload = { ...form, profile_image: form.profile_image || null };
       const { data } = await api.post("/teachers", payload);
       setCredentials(data.credentials);
-      setForm({ ...emptyForm, assigned_class_id: classes[0]?.id || "" });
       await load();
       toast.success("Teacher registered");
     } catch (err) {
@@ -60,6 +63,57 @@ export default function Teachers() {
       setSaving(false);
     }
   };
+
+  const startEdit = (teacher) => {
+    setEditing({
+      id: teacher.id,
+      name: teacher.name || "",
+      phone_number: teacher.phone_number || "",
+      gender: teacher.gender || "M",
+      assigned_class_id: teacher.assigned_class_id || "",
+      core_subject: teacher.core_subject || "",
+      profile_image: teacher.profile_image || "",
+    });
+  };
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const payload = { ...editing, profile_image: editing.profile_image || null };
+      delete payload.id;
+      await api.put(`/teachers/${editing.id}`, payload);
+      setEditing(null);
+      await load();
+      toast.success("Teacher updated");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to update teacher");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteTeacher = async (teacher) => {
+    if (!window.confirm(`Delete ${teacher.name}'s teacher account?`)) return;
+    setSaving(true);
+    try {
+      await api.delete(`/teachers/${teacher.id}`);
+      await load();
+      toast.success("Teacher deleted");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to delete teacher");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editClassOptions = useMemo(() => {
+    if (!editing) return [];
+    const current = classes.find((c) => c.id === editing.assigned_class_id);
+    const merged = current ? [current, ...availableClasses.filter((c) => c.id !== current.id)] : availableClasses;
+    return merged;
+  }, [availableClasses, classes, editing]);
 
   return (
     <div className="space-y-6" data-testid="teachers-page">
@@ -110,8 +164,9 @@ export default function Teachers() {
           <label className="block text-sm font-medium">
             Assigned class
             <select required value={form.assigned_class_id} onChange={(e) => update("assigned_class_id", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
-              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {availableClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            {availableClasses.length === 0 && <div className="mt-2 text-xs text-[#E05236]">All classes already have assigned teachers.</div>}
           </label>
 
           <label className="block text-sm font-medium">
@@ -119,7 +174,7 @@ export default function Teachers() {
             <input value={form.profile_image} onChange={(e) => update("profile_image", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="https://..." />
           </label>
 
-          <button type="submit" disabled={saving || !classes.length} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60">
+          <button type="submit" disabled={saving || !availableClasses.length} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60">
             <Save className="w-4 h-4" /> {saving ? "Registering..." : "Register Teacher"}
           </button>
 
@@ -142,10 +197,11 @@ export default function Teachers() {
                   <th className="px-6 py-4">Subject</th>
                   <th className="px-6 py-4">Students</th>
                   <th className="px-6 py-4">Attendance</th>
+                  <th className="px-6 py-4"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/5">
-                {filtered.length === 0 && <tr><td colSpan={5} className="px-6 py-12 text-center text-neutral-500">No teachers found.</td></tr>}
+                {filtered.length === 0 && <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-500">No teachers found.</td></tr>}
                 {filtered.map((t) => (
                   <tr key={t.id || t.user_id} className="hover:bg-black/[0.02]">
                     <td className="px-6 py-4">
@@ -165,6 +221,12 @@ export default function Teachers() {
                     <td className="px-6 py-4">{t.core_subject}</td>
                     <td className="px-6 py-4">{t.students_count || 0}</td>
                     <td className="px-6 py-4">{t.attendance_pct || 0}%</td>
+                    <td className="px-6 py-4">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => startEdit(t)} className="p-2 rounded-lg hover:bg-black/5" aria-label={`edit ${t.name}`}><Edit3 className="w-4 h-4" /></button>
+                        <button onClick={() => deleteTeacher(t)} className="p-2 rounded-lg text-neutral-400 hover:text-[#E05236] hover:bg-[#FBE9E3]" aria-label={`delete ${t.name}`}><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -172,6 +234,36 @@ export default function Teachers() {
           </div>
         </div>
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setEditing(null)}>
+          <form onSubmit={saveEdit} onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="label-eyebrow">Edit teacher</div>
+                <h3 className="font-display text-2xl font-semibold mt-1">{editing.name}</h3>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-black/5" aria-label="close"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Teacher name" />
+              <input required value={editing.phone_number} onChange={(e) => updateEditing("phone_number", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Phone number" />
+              <select value={editing.gender} onChange={(e) => updateEditing("gender", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+                <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
+              </select>
+              <input required value={editing.core_subject} onChange={(e) => updateEditing("core_subject", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Core subject" />
+              <select required value={editing.assigned_class_id} onChange={(e) => updateEditing("assigned_class_id", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+                {editClassOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input value={editing.profile_image} onChange={(e) => updateEditing("profile_image", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Profile image URL" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(null)} className="btn-ghost text-sm py-2.5">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-primary text-sm py-2.5 disabled:opacity-60"><Save className="w-4 h-4" /> {saving ? "Saving..." : "Save Changes"}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

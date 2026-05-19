@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { Search, Save, UserPlus } from "lucide-react";
+import { ChevronDown, Edit3, Search, Save, Trash2, UserPlus, X } from "lucide-react";
 
 const emptyStudent = {
   name: "",
@@ -17,6 +17,7 @@ const emptyStudent = {
   address: "",
   house: "",
   category: "",
+  profile_image: "",
 };
 
 export default function Students() {
@@ -28,6 +29,9 @@ export default function Students() {
   const [classFilter, setClassFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [deletingId, setDeletingId] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const canCreate = ["super_admin", "school_admin", "teacher"].includes(user?.role);
   const assignedClassId = user?.role === "teacher" ? user?.meta?.assigned_class_id : null;
@@ -40,6 +44,7 @@ export default function Students() {
     const firstClass = assignedClassId || c.data[0]?.id || "";
     setForm((v) => ({ ...v, class_id: v.class_id || firstClass }));
     if (assignedClassId) setClassFilter(assignedClassId);
+    else if (classFilter === "all" && c.data[0]) setClassFilter(c.data[0].id);
     setLoading(false);
   };
 
@@ -65,6 +70,7 @@ export default function Students() {
   }, [students, q, classFilter]);
 
   const update = (key, value) => setForm((v) => ({ ...v, [key]: value }));
+  const updateEditing = (key, value) => setEditing((v) => ({ ...v, [key]: value }));
 
   const createStudent = async (e) => {
     e.preventDefault();
@@ -79,12 +85,63 @@ export default function Students() {
       await api.post("/students", payload);
       const nextClass = assignedClassId || form.class_id;
       setForm({ ...emptyStudent, class_id: nextClass, gender: "M" });
+      setCreateOpen(false);
       await load();
       toast.success("Student profile created");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Unable to create student");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const startEdit = (student) => {
+    setEditing({
+      ...emptyStudent,
+      ...student,
+      parent_email: student.parent_email || "",
+      parent_phone: student.parent_phone || "",
+      address: student.address || "",
+      house: student.house || "",
+      category: student.category || "",
+      profile_image: student.profile_image || "",
+    });
+  };
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const required = new Set(["name", "roll_no", "class_id", "gender"]);
+      const payload = Object.fromEntries(
+        Object.entries(editing)
+          .filter(([key]) => key !== "id")
+          .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
+          .filter(([key, value]) => required.has(key) || value)
+      );
+      await api.put(`/students/${editing.id}`, payload);
+      setEditing(null);
+      await load();
+      toast.success("Student profile updated");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to update student");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteStudent = async (student) => {
+    if (!window.confirm(`Delete ${student.name}'s profile and linked records?`)) return;
+    setDeletingId(student.id);
+    try {
+      await api.delete(`/students/${student.id}`);
+      await load();
+      toast.success("Student deleted");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to delete student");
+    } finally {
+      setDeletingId("");
     }
   };
 
@@ -111,16 +168,19 @@ export default function Students() {
       </div>
 
       {canCreate && (
-        <form onSubmit={createStudent} className="card-soft p-6 space-y-4" data-testid="student-create-form">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#E5EFE8] text-[#4A7C59] grid place-items-center"><UserPlus className="w-5 h-5" /></div>
-            <div>
-              <div className="label-eyebrow">New profile</div>
-              <h3 className="font-display text-xl font-semibold">Create Student</h3>
+        <div className="card-soft overflow-hidden" data-testid="student-create-form">
+          <button type="button" onClick={() => setCreateOpen((v) => !v)} className="w-full p-6 flex items-center justify-between text-left">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#E5EFE8] text-[#4A7C59] grid place-items-center"><UserPlus className="w-5 h-5" /></div>
+              <div>
+                <div className="label-eyebrow">New profile</div>
+                <h3 className="font-display text-xl font-semibold">Create Student</h3>
+              </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <ChevronDown className={`w-5 h-5 transition ${createOpen ? "rotate-180" : ""}`} />
+          </button>
+          {createOpen && <form onSubmit={createStudent} className="px-6 pb-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <label className="block text-sm font-medium">
               Name
               <input required value={form.name} onChange={(e) => update("name", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Student name" />
@@ -171,12 +231,33 @@ export default function Students() {
               Category
               <input value={form.category} onChange={(e) => update("category", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="GEN" />
             </label>
-          </div>
+            <label className="block text-sm font-medium xl:col-span-2">
+              Profile image URL
+              <input value={form.profile_image} onChange={(e) => update("profile_image", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="https://..." />
+            </label>
+            </div>
 
-          <button type="submit" disabled={saving || !form.class_id} className="btn-primary text-sm py-2.5 disabled:opacity-60">
-            <Save className="w-4 h-4" /> {saving ? "Creating..." : "Create Student Profile"}
-          </button>
-        </form>
+            <button type="submit" disabled={saving || !form.class_id} className="btn-primary text-sm py-2.5 disabled:opacity-60">
+              <Save className="w-4 h-4" /> {saving ? "Creating..." : "Create Student Profile"}
+            </button>
+          </form>}
+        </div>
+      )}
+
+      {!assignedClassId && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {classes.map((c) => {
+            const count = students.filter((s) => s.class_id === c.id).length;
+            const active = classFilter === c.id;
+            return (
+              <button key={c.id} type="button" onClick={() => setClassFilter(c.id)} className={`card-soft p-4 text-left transition ${active ? "ring-2 ring-[#E05236]" : "hover:-translate-y-0.5"}`}>
+                <div className="font-display text-lg font-semibold">{c.name}</div>
+                <div className="mt-1 text-sm text-neutral-500">{count} students</div>
+                <div className="mt-2 text-xs text-neutral-500 truncate">{(c.subjects || []).join(", ") || "No subjects set"}</div>
+              </button>
+            );
+          })}
+        </div>
       )}
 
       <div className="card-soft overflow-hidden">
@@ -199,7 +280,11 @@ export default function Students() {
                 <tr key={s.id} className="hover:bg-black/[0.02]" data-testid={`student-row-${s.roll_no}`}>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-[#0A1128] text-white grid place-items-center font-medium text-sm">{s.name.charAt(0)}</div>
+                      {s.profile_image ? (
+                        <img src={s.profile_image} alt="" className="w-9 h-9 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-[#0A1128] text-white grid place-items-center font-medium text-sm">{s.name.charAt(0)}</div>
+                      )}
                       <div>
                         <div className="font-medium">{s.name}</div>
                         <div className="text-xs text-neutral-500">{s.gender === "F" ? "Female" : s.gender === "M" ? "Male" : "Other"}</div>
@@ -213,7 +298,15 @@ export default function Students() {
                   </td>
                   <td className="px-6 py-4 text-neutral-600">{s.parent_email || "-"}</td>
                   <td className="px-6 py-4 text-right">
-                    <Link to={`/app/students/${s.id}`} className="text-xs text-[#E05236] font-medium" data-testid={`view-student-${s.roll_no}`}>View profile</Link>
+                    <div className="flex justify-end gap-2">
+                      <Link to={`/app/students/${s.id}`} className="text-xs text-[#E05236] font-medium self-center" data-testid={`view-student-${s.roll_no}`}>View</Link>
+                      {canCreate && (
+                        <>
+                          <button onClick={() => startEdit(s)} className="p-2 rounded-lg hover:bg-black/5" aria-label={`edit ${s.name}`}><Edit3 className="w-4 h-4" /></button>
+                          <button onClick={() => deleteStudent(s)} disabled={deletingId === s.id} className="p-2 rounded-lg text-neutral-400 hover:text-[#E05236] hover:bg-[#FBE9E3] disabled:opacity-50" aria-label={`delete ${s.name}`}><Trash2 className="w-4 h-4" /></button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -221,6 +314,42 @@ export default function Students() {
           </table>
         </div>
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setEditing(null)}>
+          <form onSubmit={saveEdit} onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-5xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="label-eyebrow">Edit profile</div>
+                <h3 className="font-display text-2xl font-semibold mt-1">{editing.name}</h3>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-black/5" aria-label="close"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Student name" />
+              <input required value={editing.roll_no} onChange={(e) => updateEditing("roll_no", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Roll no" />
+              <select required value={editing.class_id} onChange={(e) => updateEditing("class_id", e.target.value)} disabled={!!assignedClassId} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm disabled:opacity-70">
+                {classOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input value={editing.section} onChange={(e) => updateEditing("section", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Section" />
+              <select value={editing.gender} onChange={(e) => updateEditing("gender", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+                <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
+              </select>
+              <input type="date" value={editing.dob || ""} onChange={(e) => updateEditing("dob", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" />
+              <input type="email" value={editing.parent_email} onChange={(e) => updateEditing("parent_email", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Parent email" />
+              <input value={editing.parent_phone} onChange={(e) => updateEditing("parent_phone", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Parent phone" />
+              <input value={editing.address} onChange={(e) => updateEditing("address", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm xl:col-span-2" placeholder="Address" />
+              <input value={editing.house} onChange={(e) => updateEditing("house", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="House" />
+              <input value={editing.category} onChange={(e) => updateEditing("category", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Category" />
+              <input value={editing.profile_image} onChange={(e) => updateEditing("profile_image", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm xl:col-span-2" placeholder="Profile image URL" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(null)} className="btn-ghost text-sm py-2.5">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-primary text-sm py-2.5 disabled:opacity-60"><Save className="w-4 h-4" /> {saving ? "Saving..." : "Save Changes"}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
