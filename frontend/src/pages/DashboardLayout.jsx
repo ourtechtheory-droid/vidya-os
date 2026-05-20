@@ -2,7 +2,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, Calendar, FileSpreadsheet, Wallet, Megaphone,
-  Bot, MessageSquareText, Sparkles, LogOut, Bell, Search, Menu, X, GraduationCap, School
+  Bot, MessageSquareText, Sparkles, LogOut, Bell, Search, Menu, X, GraduationCap, School,
+  CalendarRange, Send, Award, IdCard
 } from "lucide-react";
 import { useState } from "react";
 
@@ -15,6 +16,10 @@ const ALL_ITEMS = [
   { to: "/app/exams",             label: "Exams & Marks",      icon: FileSpreadsheet, roles: ["super_admin","school_admin","teacher","student","parent"] },
   { to: "/app/fees",              label: "Fees",               icon: Wallet,          roles: ["super_admin","school_admin","parent","student"] },
   { to: "/app/circulars",         label: "Circulars",          icon: Megaphone,       roles: ["super_admin","school_admin","teacher","student","parent"] },
+  { to: "/app/timetable",         label: "Timetable",          icon: CalendarRange,   roles: ["super_admin","school_admin"] },
+  { to: "/app/communication",     label: "Communication",      icon: Send,            roles: ["super_admin","school_admin","teacher"] },
+  { to: "/app/certificates",      label: "Certificates",       icon: Award,           roles: ["super_admin","school_admin"] },
+  { to: "/app/id-cards",          label: "ID Cards",           icon: IdCard,          roles: ["super_admin","school_admin"] },
   { to: "/app/ai/teacher",        label: "AI Teacher Copilot", icon: Bot,             roles: ["super_admin","school_admin","teacher"] },
   { to: "/app/ai/parent",         label: "AI Saathi",          icon: MessageSquareText,roles: ["super_admin","school_admin","parent","student"] },
   { to: "/app/ai/insights",       label: "AI Insights",        icon: Sparkles,        roles: ["super_admin","school_admin","teacher"] },

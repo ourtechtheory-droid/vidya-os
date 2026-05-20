@@ -208,6 +208,41 @@ class AITeacherRequest(BaseModel):
     extra: Optional[str] = None
 
 
+class TimetableGenerateRequest(BaseModel):
+    class_id: str
+    days: List[str] = Field(default_factory=lambda: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])
+    periods_per_day: Optional[int] = None
+    break_after_period: int = 4
+
+
+class TimetableUpdate(BaseModel):
+    entries: List[Dict[str, Any]]
+
+
+class CommunicationCreate(BaseModel):
+    audience: Literal["parents", "teachers", "students", "class", "section", "all"]
+    channel: Literal["whatsapp", "sms", "zoho"] = "whatsapp"
+    title: str
+    body: str
+    class_id: Optional[str] = None
+    section: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    category: Literal["general", "emergency", "attendance", "fees", "exam"] = "general"
+
+
+class CertificateTemplateCreate(BaseModel):
+    name: str
+    type: Literal["achievement", "participation", "sports", "completion", "other"] = "achievement"
+    design: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IDCardBatchCreate(BaseModel):
+    target_type: Literal["students", "teachers", "staff"] = "students"
+    class_id: Optional[str] = None
+    role: Optional[str] = None
+    design: Dict[str, Any] = Field(default_factory=dict)
+
+
 # =========================================================
 # Helpers
 # =========================================================
@@ -1189,6 +1224,176 @@ async def dashboard_stats(user=Depends(get_current_user)):
         "teacher_context": teacher_context,
         "recent_exams": recent_exams,
     }
+
+
+# =========================================================
+# Timetable / Communication / Documents
+# =========================================================
+@api.post("/timetable/generate")
+async def generate_timetable(body: TimetableGenerateRequest, user=Depends(require_roles("super_admin", "school_admin"))):
+    klass = await db.classes.find_one({"id": body.class_id}, {"_id": 0})
+    if not klass:
+        raise HTTPException(404, "Class not found")
+    teachers = await db.teacher_profiles.find({}, {"_id": 0}).to_list(500)
+    subjects = klass.get("subjects") or ["English", "Hindi", "Telugu", "Maths", "Science", "Social"]
+    periods = body.periods_per_day or klass.get("periods_per_day") or 8
+    teacher_busy: Dict[str, set] = {}
+    entries = []
+    labs = {"Science", "Computer Science", "Physics", "Chemistry", "Biology"}
+    for day in body.days:
+        subject_index = 0
+        for period in range(1, periods + 1):
+            slot = f"{day}-{period}"
+            if period == body.break_after_period:
+                entries.append({"id": str(uuid.uuid4()), "day": day, "period": period, "type": "break", "title": "Break", "subject": "", "teacher_id": "", "teacher_name": "", "room": "Campus"})
+                continue
+            subject = subjects[subject_index % len(subjects)]
+            subject_index += 1
+            candidates = [t for t in teachers if (t.get("core_subject") or "").lower() == subject.lower()] or teachers
+            teacher = next((t for t in candidates if slot not in teacher_busy.setdefault(t.get("user_id") or t.get("id"), set())), candidates[0] if candidates else {})
+            teacher_key = teacher.get("user_id") or teacher.get("id") or ""
+            if teacher_key:
+                teacher_busy.setdefault(teacher_key, set()).add(slot)
+            is_lab = subject in labs and period in (2, 6)
+            entries.append({
+                "id": str(uuid.uuid4()),
+                "day": day,
+                "period": period,
+                "type": "lab" if is_lab else "class",
+                "title": f"{subject} Lab" if is_lab else subject,
+                "subject": subject,
+                "teacher_id": teacher_key,
+                "teacher_name": teacher.get("name") or "Unassigned",
+                "room": "Lab" if is_lab else klass.get("name", "Classroom"),
+            })
+    doc = {
+        "id": str(uuid.uuid4()),
+        "class_id": body.class_id,
+        "class_name": klass.get("name"),
+        "days": body.days,
+        "periods_per_day": periods,
+        "entries": entries,
+        "created_by": user["id"],
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.timetables.delete_many({"class_id": body.class_id})
+    await db.timetables.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/timetable")
+async def list_timetables(class_id: Optional[str] = None, teacher_id: Optional[str] = None, user=Depends(get_current_user)):
+    q: Dict[str, Any] = {}
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        teacher_id = profile.get("user_id")
+    if class_id:
+        q["class_id"] = class_id
+    timetables = await db.timetables.find(q, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    if teacher_id:
+        filtered = []
+        for t in timetables:
+            entries = [e for e in t.get("entries", []) if e.get("teacher_id") == teacher_id]
+            if entries:
+                filtered.append({**t, "entries": entries})
+        return filtered
+    return timetables
+
+
+@api.put("/timetable/{class_id}")
+async def update_timetable(class_id: str, body: TimetableUpdate, user=Depends(require_roles("super_admin", "school_admin"))):
+    res = await db.timetables.update_one({"class_id": class_id}, {"$set": {"entries": body.entries, "updated_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Timetable not found")
+    return await db.timetables.find_one({"class_id": class_id}, {"_id": 0})
+
+
+@api.post("/communications")
+async def create_communication(body: CommunicationCreate, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+    msg = body.model_dump()
+    recipient_count = 0
+    if body.audience == "teachers":
+        recipient_count = await db.users.count_documents({"role": "teacher"})
+    elif body.audience == "students":
+        recipient_count = await db.students.count_documents({})
+    elif body.audience == "parents":
+        recipient_count = len(await db.students.distinct("parent_email", {"parent_email": {"$ne": None}}))
+    elif body.audience in ("class", "section"):
+        q = {"class_id": body.class_id} if body.class_id else {}
+        if body.section:
+            q["section"] = body.section
+        recipient_count = await db.students.count_documents(q)
+    else:
+        recipient_count = await db.users.count_documents({})
+    statuses = ["delivered", "read", "queued"] if body.scheduled_at else ["sent", "delivered", "read"]
+    msg.update({
+        "id": str(uuid.uuid4()),
+        "recipient_count": recipient_count,
+        "delivery_status": statuses[min(1, len(statuses) - 1)],
+        "read_status": "pending" if body.scheduled_at else "partial",
+        "sent_at": None if body.scheduled_at else now_iso(),
+        "created_by": user["id"],
+        "created_by_name": user["name"],
+        "created_at": now_iso(),
+    })
+    await db.communications.insert_one(msg)
+    return {k: v for k, v in msg.items() if k != "_id"}
+
+
+@api.get("/communications")
+async def list_communications(user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+    return await db.communications.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api.get("/communication-templates")
+async def communication_templates(user=Depends(get_current_user)):
+    return [
+        {"title": "Attendance Alert", "category": "attendance", "body": "Your child was marked absent today. Please contact the class teacher for clarification."},
+        {"title": "Fee Reminder", "category": "fees", "body": "This is a gentle reminder to clear pending school fee dues before the due date."},
+        {"title": "Exam Notification", "category": "exam", "body": "Exam schedule has been published. Please check the timetable and prepare accordingly."},
+        {"title": "Emergency Announcement", "category": "emergency", "body": "Important school announcement: please read this message immediately."},
+    ]
+
+
+@api.post("/certificate-templates")
+async def create_certificate_template(body: CertificateTemplateCreate, user=Depends(require_roles("super_admin", "school_admin"))):
+    doc = body.model_dump()
+    doc.update({"id": str(uuid.uuid4()), "created_by": user["id"], "created_at": now_iso(), "updated_at": now_iso()})
+    await db.certificate_templates.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/certificate-templates")
+async def list_certificate_templates(user=Depends(require_roles("super_admin", "school_admin"))):
+    return await db.certificate_templates.find({}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+
+
+@api.post("/id-card-batches")
+async def create_id_card_batch(body: IDCardBatchCreate, user=Depends(require_roles("super_admin", "school_admin"))):
+    q: Dict[str, Any] = {}
+    records: List[Dict[str, Any]] = []
+    if body.target_type == "students":
+        if body.class_id:
+            q["class_id"] = body.class_id
+        records = await db.students.find(q, {"_id": 0}).to_list(1000)
+    elif body.target_type == "teachers":
+        records = await db.teacher_profiles.find({}, {"_id": 0}).to_list(1000)
+    doc = body.model_dump()
+    doc.update({
+        "id": str(uuid.uuid4()),
+        "record_count": len(records),
+        "records": records[:100],
+        "created_by": user["id"],
+        "created_at": now_iso(),
+    })
+    await db.id_card_batches.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.get("/id-card-batches")
+async def list_id_card_batches(user=Depends(require_roles("super_admin", "school_admin"))):
+    return await db.id_card_batches.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
 
 
 # =========================================================

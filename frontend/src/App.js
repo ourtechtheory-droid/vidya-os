@@ -20,6 +20,10 @@ import Circulars from "@/pages/Circulars";
 import AITeacher from "@/pages/AITeacher";
 import AIParent from "@/pages/AIParent";
 import AIInsights from "@/pages/AIInsights";
+import Timetable from "@/pages/Timetable";
+import Communication from "@/pages/Communication";
+import Certificates from "@/pages/Certificates";
+import IDCards from "@/pages/IDCards";
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -43,6 +47,10 @@ function AppRoutes() {
         <Route path="exams" element={<Exams />} />
         <Route path="fees" element={<Fees />} />
         <Route path="circulars" element={<Circulars />} />
+        <Route path="timetable" element={<Timetable />} />
+        <Route path="communication" element={<Communication />} />
+        <Route path="certificates" element={<Certificates />} />
+        <Route path="id-cards" element={<IDCards />} />
         <Route path="ai/teacher" element={<AITeacher />} />
         <Route path="ai/parent" element={<AIParent />} />
         <Route path="ai/insights" element={<AIInsights />} />
