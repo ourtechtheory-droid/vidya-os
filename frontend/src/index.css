@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 48 10% 98%;           /* #FBFBF9 warm pearl */
+    --foreground: 224 60% 10%;          /* #0A1128 navy */
+    --card: 0 0% 100%;
+    --card-foreground: 224 60% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 60% 10%;
+    --primary: 11 100% 61%;             /* #FF5E3A Saffron Coral */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 60% 10%;           /* navy */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 160 84% 39%;              /* #10B981 Teal Emerald */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 92%;
+    --input: 220 13% 92%;
+    --ring: 11 100% 61%;
+    --radius: 0.85rem;
+  }
+  .dark {
+    --background: 224 67% 8%;           /* #070F24 */
+    --foreground: 0 0% 98%;
+    --card: 226 58% 12%;                /* #0C142E */
+    --card-foreground: 0 0% 98%;
+    --popover: 226 58% 12%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 11 100% 61%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 226 58% 16%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 226 40% 18%;
+    --muted-foreground: 226 15% 65%;
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 226 40% 20%;
+    --input: 226 40% 20%;
+    --ring: 11 100% 61%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body { @apply bg-background text-foreground; font-family: 'Manrope', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4 { font-family: 'Outfit', system-ui, sans-serif; letter-spacing: -0.02em; }
+  ::selection { background: #FF5E3A; color: #fff; }
+}
+
+@layer utilities {
+  .glass {
+    @apply backdrop-blur-xl bg-white/75 border-b border-black/5;
+  }
+  .grain {
+    background-image: radial-gradient(circle at 1px 1px, rgba(10,17,40,0.05) 1px, transparent 0);
+    background-size: 16px 16px;
+  }
+  .text-balance { text-wrap: balance; }
+  .ring-brand { @apply ring-2 ring-[#FF5E3A] ring-offset-2 ring-offset-white; }
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-[#FF5E3A] text-white font-medium hover:bg-[#E04B28] transition-all duration-200 hover:-translate-y-0.5 shadow-sm hover:shadow-md; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-black/10 text-[#0A1128] hover:bg-black/5 transition-all duration-200; }
+  .card-soft { @apply bg-white border border-black/[0.04] rounded-2xl; box-shadow: 0 10px 30px -10px rgba(10,17,40,0.04), 0 1px 3px rgba(10,17,40,0.01); }
+  .card-plain { @apply border border-black/[0.06] rounded-2xl; box-shadow: 0 10px 30px -10px rgba(10,17,40,0.04); }
+  .label-eyebrow { @apply text-[11px] uppercase tracking-[0.22em] font-semibold text-neutral-500; }
+  .anim-pop { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+
+@layer base {
+  [data-debug-wrapper="true"] { display: contents !important; }
+  [data-debug-wrapper="true"] > * {
+    margin-left: inherit; margin-right: inherit; margin-top: inherit; margin-bottom: inherit;
+    padding-left: inherit; padding-right: inherit; padding-top: inherit; padding-bottom: inherit;
+    column-gap: inherit; row-gap: inherit; gap: inherit;
+    border-left-width: inherit; border-right-width: inherit; border-top-width: inherit; border-bottom-width: inherit;
+    border-left-style: inherit; border-right-style: inherit; border-top-style: inherit; border-bottom-style: inherit;
+    border-left-color: inherit; border-right-color: inherit; border-top-color: inherit; border-bottom-color: inherit;
+  }
+}
