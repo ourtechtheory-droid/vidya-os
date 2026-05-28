@@ -104,9 +104,10 @@ Create a `.env` configuration file in `/var/www/vidya-os/backend/.env`:
 ```bash
 nano .env
 ```
-Add the following content (specifying the **local** MongoDB instance path):
+Add the following content (specifying the **local** MongoDB instance path and database name):
 ```env
-MONGODB_URI=mongodb://127.0.0.1:27017/vidya_db
+MONGO_URL=mongodb://127.0.0.1:27017
+DB_NAME=vidya_db
 JWT_SECRET=super-secure-random-string-generate-your-own
 PORT=8001
 HOST=0.0.0.0
