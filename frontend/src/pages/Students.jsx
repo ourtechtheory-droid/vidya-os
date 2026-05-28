@@ -18,6 +18,9 @@ const emptyStudent = {
   house: "",
   category: "",
   profile_image: "",
+  student_email: "",
+  password: "",
+  create_login: true,
 };
 
 export default function Students() {
@@ -76,7 +79,7 @@ export default function Students() {
     e.preventDefault();
     setSaving(true);
     try {
-      const required = new Set(["name", "roll_no", "class_id", "gender"]);
+      const required = new Set(["name", "roll_no", "class_id", "gender", "create_login"]);
       const payload = Object.fromEntries(
         Object.entries(form)
           .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
@@ -87,7 +90,7 @@ export default function Students() {
       setForm({ ...emptyStudent, class_id: nextClass, gender: "M" });
       setCreateOpen(false);
       await load();
-      toast.success("Student profile created");
+      toast.success("Student profile and active login credentials created!");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Unable to create student");
     } finally {
@@ -105,6 +108,9 @@ export default function Students() {
       house: student.house || "",
       category: student.category || "",
       profile_image: student.profile_image || "",
+      student_email: student.student_email || "",
+      password: student.password_hint || "",
+      create_login: true,
     });
   };
 
@@ -113,7 +119,7 @@ export default function Students() {
     if (!editing) return;
     setSaving(true);
     try {
-      const required = new Set(["name", "roll_no", "class_id", "gender"]);
+      const required = new Set(["name", "roll_no", "class_id", "gender", "create_login"]);
       const payload = Object.fromEntries(
         Object.entries(editing)
           .filter(([key]) => key !== "id")
@@ -123,7 +129,7 @@ export default function Students() {
       await api.put(`/students/${editing.id}`, payload);
       setEditing(null);
       await load();
-      toast.success("Student profile updated");
+      toast.success("Student profile and login credentials updated!");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Unable to update student");
     } finally {
@@ -235,6 +241,21 @@ export default function Students() {
               Profile image URL
               <input value={form.profile_image} onChange={(e) => update("profile_image", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="https://..." />
             </label>
+            
+            <div className="border-t border-black/[0.06] pt-4 xl:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+              <div className="xl:col-span-2">
+                <h4 className="text-sm font-semibold text-[#0A1128]">Generate Student Login Credentials</h4>
+                <p className="text-xs text-neutral-400 mt-0.5">An active login account will be automatically generated and linked to this profile.</p>
+              </div>
+              <label className="block text-sm font-medium">
+                Student Email (Optional)
+                <input type="email" value={form.student_email} onChange={(e) => update("student_email", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Leave blank to auto-generate" />
+              </label>
+              <label className="block text-sm font-medium">
+                Login Password (Optional)
+                <input type="text" value={form.password} onChange={(e) => update("password", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Default is Pass@1234" />
+              </label>
+            </div>
             </div>
 
             <button type="submit" disabled={saving || !form.class_id} className="btn-primary text-sm py-2.5 disabled:opacity-60">
@@ -342,6 +363,21 @@ export default function Students() {
               <input value={editing.house} onChange={(e) => updateEditing("house", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="House" />
               <input value={editing.category} onChange={(e) => updateEditing("category", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Category" />
               <input value={editing.profile_image} onChange={(e) => updateEditing("profile_image", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm xl:col-span-2" placeholder="Profile image URL" />
+            </div>
+            
+            <div className="border-t border-black/[0.06] pt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="md:col-span-2">
+                <h4 className="text-sm font-semibold text-[#0A1128]">Student Login Credentials</h4>
+                <p className="text-xs text-neutral-400 mt-0.5">Update login credentials below. Changes will be synced directly to their login account.</p>
+              </div>
+              <label className="block text-sm font-medium">
+                Student Email
+                <input type="email" value={editing.student_email} onChange={(e) => updateEditing("student_email", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Leave blank to auto-generate" />
+              </label>
+              <label className="block text-sm font-medium">
+                Login Password (Optional)
+                <input type="text" value={editing.password} onChange={(e) => updateEditing("password", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Pass@1234" />
+              </label>
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setEditing(null)} className="btn-ghost text-sm py-2.5">Cancel</button>

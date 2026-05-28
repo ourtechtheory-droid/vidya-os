@@ -5,7 +5,8 @@ import {
   Bot, MessageSquareText, Sparkles, LogOut, Bell, Search, Menu, X, GraduationCap, School,
   CalendarRange, Send, Award, IdCard
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 
 const ALL_ITEMS = [
   { to: "/app",                   label: "Dashboard",          icon: LayoutDashboard, roles: ["super_admin","school_admin","teacher","student","parent"], end: true },
@@ -19,7 +20,6 @@ const ALL_ITEMS = [
   { to: "/app/timetable",         label: "Timetable",          icon: CalendarRange,   roles: ["super_admin","school_admin"] },
   { to: "/app/communication",     label: "Communication",      icon: Send,            roles: ["super_admin","school_admin","teacher"] },
   { to: "/app/certificates",      label: "Certificates",       icon: Award,           roles: ["super_admin","school_admin"] },
-  { to: "/app/id-cards",          label: "ID Cards",           icon: IdCard,          roles: ["super_admin","school_admin"] },
   { to: "/app/ai/teacher",        label: "AI Teacher Copilot", icon: Bot,             roles: ["super_admin","school_admin","teacher"] },
   { to: "/app/ai/parent",         label: "AI Saathi",          icon: MessageSquareText,roles: ["super_admin","school_admin","parent","student"] },
   { to: "/app/ai/insights",       label: "AI Insights",        icon: Sparkles,        roles: ["super_admin","school_admin","teacher"] },
@@ -36,6 +36,42 @@ export default function DashboardLayout() {
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const items = ALL_ITEMS.filter((i) => i.roles.includes(user?.role));
+
+  // Dynamic system alerts state
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [readAlertIds, setReadAlertIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("read_alert_ids") || "[]");
+    } catch (_) {
+      return [];
+    }
+  });
+
+  const loadNotifications = async () => {
+    try {
+      const { data } = await api.get("/notifications");
+      setNotifications(data);
+    } catch (_) {
+      // silent fail fallback
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadNotifications();
+      const t = setInterval(loadNotifications, 8000);
+      return () => clearInterval(t);
+    }
+  }, [user]);
+
+  const unreadAlerts = notifications.filter(n => !readAlertIds.includes(n.id));
+
+  const markAllAsRead = () => {
+    const nextReadIds = [...new Set([...readAlertIds, ...notifications.map(n => n.id)])];
+    setReadAlertIds(nextReadIds);
+    localStorage.setItem("read_alert_ids", JSON.stringify(nextReadIds));
+  };
 
   const onLogout = () => { logout(); nav("/login"); };
 
@@ -59,10 +95,75 @@ export default function DashboardLayout() {
             <input className="bg-transparent text-sm w-full outline-none" placeholder="Search students, classes, circulars…" data-testid="global-search" />
           </div>
           <div className="flex items-center gap-2">
-            <button className="p-2 rounded-lg hover:bg-black/5 relative" aria-label="notifications" data-testid="notifications-button">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#FF5E3A] rounded-full" />
-            </button>
+            
+            {/* Functional Notifications Drawer button and dropdown overlay */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)} 
+                className="p-2 rounded-lg hover:bg-black/5 relative transition" 
+                aria-label="notifications" 
+                data-testid="notifications-button"
+              >
+                <Bell className="w-5 h-5 text-neutral-700" />
+                {unreadAlerts.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-[#FF5E3A] rounded-full ring-2 ring-white animate-pulse" />
+                )}
+              </button>
+
+              {showNotifications && (
+                <>
+                  <div className="fixed inset-0 z-40 cursor-default" onClick={() => setShowNotifications(false)} />
+                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl border border-black/10 shadow-2xl z-50 overflow-hidden anim-pop flex flex-col max-h-[420px]">
+                    <div className="p-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+                      <span className="font-display font-bold text-sm text-[#0A1128]">Notifications</span>
+                      {unreadAlerts.length > 0 && (
+                        <button 
+                          onClick={markAllAsRead} 
+                          className="text-[10px] text-[#FF5E3A] hover:underline font-bold"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto divide-y divide-neutral-100 max-h-[300px] scrollbar-thin">
+                      {notifications.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-neutral-400 italic">
+                          No new notifications.
+                        </div>
+                      ) : (
+                        notifications.map((alert) => {
+                          const isUnread = !readAlertIds.includes(alert.id);
+                          return (
+                            <div 
+                              key={alert.id} 
+                              className={`p-3 text-left text-xs transition-colors hover:bg-neutral-50/50 relative flex items-start gap-2.5 ${isUnread ? "bg-orange-50/20 font-semibold" : ""}`}
+                            >
+                              {isUnread && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#FF5E3A] shrink-0 mt-1.5 animate-pulse" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] font-bold text-[#0A1128] flex items-center gap-1.5">
+                                  <span>{alert.title}</span>
+                                  <span className="text-[9px] font-medium text-neutral-400 ml-auto shrink-0">
+                                    {alert.time ? new Date(alert.time).toLocaleDateString("en-IN", {month: "short", day: "numeric"}) : ""}
+                                  </span>
+                                </div>
+                                <p className="text-neutral-500 mt-1 leading-normal text-[11px] break-words">{alert.message}</p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    <div className="p-2 text-center bg-neutral-50/50 border-t border-neutral-100">
+                      <span className="text-[9px] text-neutral-400 font-bold uppercase tracking-wider">VidyaOS System Alerts</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             <div className="hidden sm:flex items-center gap-3 pl-3 ml-1 border-l border-black/10">
               <div className="text-right">
                 <div className="text-sm font-medium">{user?.name}</div>

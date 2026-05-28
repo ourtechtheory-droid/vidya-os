@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { ArrowUpRight, BookOpen, Calendar, FileSpreadsheet, Plus, Save, Sparkles, TrendingUp, Trash2, Users, Wallet } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowUpRight, BookOpen, Calendar, FileSpreadsheet, Plus, Save, Sparkles, TrendingUp, Trash2, Users, Wallet, CheckCircle, AlertCircle, GraduationCap, MessageSquareText } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, Legend
+  BarChart, Bar, Legend
 } from "recharts";
 import { Link } from "react-router-dom";
 
@@ -29,18 +30,46 @@ const KPI = ({ label, value, sub, icon: Icon, accent = "bg-[#0A1128] text-white"
 );
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [stats, setStats] = useState(null);
   const [circulars, setCirculars] = useState([]);
   const [events, setEvents] = useState([]);
   const [showMerit, setShowMerit] = useState(false);
   const [eventForm, setEventForm] = useState({ title: "", date: new Date().toISOString().slice(0, 10), type: "lesson_plan", description: "" });
+  const [resetting, setResetting] = useState(false);
 
-  useEffect(() => {
+  const loadDashboardData = () => {
     api.get("/dashboard/stats").then(({ data }) => setStats(data)).catch(() => {});
     api.get("/circulars").then(({ data }) => setCirculars(data.slice(0, 4))).catch(() => {});
-    if (["teacher", "school_admin", "super_admin"].includes(user?.role)) api.get("/calendar").then(({ data }) => setEvents(data)).catch(() => {});
+    if (["teacher", "school_admin", "super_admin"].includes(user?.role)) {
+      api.get("/calendar").then(({ data }) => setEvents(data)).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
+
+  const handleResetSystem = async () => {
+    const confirmed = window.confirm(
+      "WARNING: This will wipe all transactional placeholder data (fake rosters, placeholder marks, fake fees, and attendance logs) and restore VidyaOS to a clean core state.\n\nAre you sure you want to proceed?"
+    );
+    if (!confirmed) return;
+
+    setResetting(true);
+    try {
+      await api.post("/admin/reset-system");
+      toast.success("Database successfully reset to pristine core state!");
+      setTimeout(() => {
+        logout();
+        window.location.href = "/login";
+      }, 1500);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to reset database");
+      setResetting(false);
+    }
+  };
 
   const c = stats?.counts || {};
   const trend = (stats?.attendance_trend || []).map((d) => ({
@@ -84,6 +113,234 @@ export default function Dashboard() {
     setEventForm((v) => ({ ...v, date: date.toISOString().slice(0, 10) }));
   };
 
+  // ==========================================
+  // STUDENT DASHBOARD RENDER
+  // ==========================================
+  if (isStudent) {
+    const sProfile = stats?.student_profile || {};
+    const avgMarks = subj.length > 0 ? Math.round(subj.reduce((acc, curr) => acc + curr.avg, 0) / subj.length) : 0;
+    
+    return (
+      <div className="space-y-6" data-testid="dashboard-student-home">
+        {/* Welcome Card */}
+        <div className="relative overflow-hidden rounded-3xl bg-[#0A1128] text-white p-8 shadow-xl">
+          <div className="absolute -right-20 -top-20 w-80 h-80 bg-gradient-to-br from-[#FF5E3A]/40 to-transparent rounded-full blur-3xl" />
+          <div className="relative flex flex-col md:flex-row items-center gap-6">
+            <div className="w-20 h-20 rounded-2xl bg-white/10 text-white grid place-items-center text-3xl font-display font-semibold border border-white/20">
+              {user?.name?.charAt(0)}
+            </div>
+            <div className="text-center md:text-left flex-1">
+              <div className="text-xs uppercase tracking-widest text-[#FF5E3A] font-semibold">Welcome back to school</div>
+              <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">Namaste, {user?.name}</h1>
+              <p className="mt-1 text-sm text-neutral-300">
+                Class {sProfile.class_name || "N/A"} · Roll No: {sProfile.roll_no || "N/A"} · {sProfile.house ? `${sProfile.house} House` : ""}
+              </p>
+            </div>
+            {sProfile.class_teacher && (
+              <div className="rounded-2xl bg-white/5 border border-white/10 p-4 text-sm shrink-0">
+                <div className="text-white/60 text-xs">Class Teacher</div>
+                <div className="font-semibold mt-1 text-white">{sProfile.class_teacher.name}</div>
+                <div className="text-xs text-neutral-300">{sProfile.class_teacher.core_subject}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <KPI label="My Attendance" value={`${stats?.cumulative_attendance_rate ?? 0}%`} sub="Target: 75%+" icon={Calendar} accent="bg-[#E6F8F3] text-[#10B981]" />
+          <KPI label="My Exam Average" value={`${avgMarks}%`} sub="Across all subjects" icon={TrendingUp} accent="bg-[#FFF3F0] text-[#FF5E3A]" />
+          <KPI label="Pending Dues" value={fmtINR(c.fees_pending_amount)} sub={c.fees_pending > 0 ? "Pay online" : "All cleared!"} icon={Wallet} accent="bg-neutral-50 text-[#0A1128] border border-black/10" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Marks Summary */}
+          <div className="card-soft p-6 lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="label-eyebrow">Performance</div>
+                <h3 className="font-display text-xl font-semibold mt-1">My Subject Averages</h3>
+              </div>
+              <Link to="/app/exams" className="text-xs text-[#FF5E3A] font-semibold">View exam details →</Link>
+            </div>
+            {subj.length === 0 ? (
+              <div className="text-sm text-neutral-500 py-12 text-center">No exam marks uploaded yet.</div>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer>
+                  <BarChart data={subj}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                    <XAxis dataKey="subject" fontSize={11} tickLine={false} axisLine={false} />
+                    <YAxis domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid rgba(0,0,0,0.08)" }} />
+                    <Bar dataKey="avg" name="My Marks %" fill="#FF5E3A" radius={[8, 8, 0, 0]} barSize={24} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Actions */}
+          <div className="card-soft p-6 bg-[#0A1128] text-white flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -bottom-20 -right-20 w-48 h-48 bg-[#FF5E3A]/20 rounded-full blur-3xl" />
+            <div className="relative">
+              <div className="label-eyebrow text-white/60">AI Companion & Leave</div>
+              <h3 className="font-display text-xl font-semibold mt-1">My Quick Desk</h3>
+              <div className="mt-5 space-y-2">
+                <Link to="/app/ai/parent" className="flex items-center justify-between rounded-xl bg-white/10 hover:bg-white/15 px-4 py-3.5 transition">
+                  <span className="text-sm font-medium">Ask AI Saathi</span>
+                  <MessageSquareText className="w-4 h-4 text-[#FF5E3A]" />
+                </Link>
+                <Link to="/app/attendance" className="flex items-center justify-between rounded-xl bg-white/10 hover:bg-white/15 px-4 py-3.5 transition">
+                  <span className="text-sm font-medium">Apply Leave Letter</span>
+                  <Calendar className="w-4 h-4 text-[#FF5E3A]" />
+                </Link>
+                <Link to="/app/fees" className="flex items-center justify-between rounded-xl bg-white/10 hover:bg-white/15 px-4 py-3.5 transition">
+                  <span className="text-sm font-medium">Fee Desk</span>
+                  <Wallet className="w-4 h-4 text-[#FF5E3A]" />
+                </Link>
+              </div>
+            </div>
+            <div className="relative mt-8 pt-4 border-t border-white/10 text-xs text-neutral-400">
+              Need assistance? Chat with AI Saathi for instantly answered school operations.
+            </div>
+          </div>
+        </div>
+
+        {/* Circulars */}
+        <div className="card-soft p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="label-eyebrow">Announcements</div>
+              <h3 className="font-display text-xl font-semibold mt-1">Circulars for you</h3>
+            </div>
+            <Link to="/app/circulars" className="text-xs text-[#FF5E3A] font-semibold">View all circulars</Link>
+          </div>
+          <div className="divide-y divide-black/5">
+            {circulars.length === 0 && <div className="text-sm text-neutral-500 py-6 text-center">No circulars posted yet.</div>}
+            {circulars.map((cc) => (
+              <div key={cc.id} className="py-4 flex items-start gap-4">
+                <div className="w-9 h-9 rounded-lg bg-[#FFF3F0] text-[#FF5E3A] grid place-items-center text-xs font-semibold uppercase shrink-0">{cc.audience.slice(0,2)}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm text-[#0A1128]">{cc.title}</div>
+                  <div className="text-xs text-neutral-500 mt-0.5 line-clamp-2">{cc.body}</div>
+                  <div className="text-[10px] text-neutral-400 mt-1">by {cc.author} · {new Date(cc.created_at).toLocaleDateString("en-IN")}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // PARENT DASHBOARD RENDER
+  // ==========================================
+  if (isParent) {
+    const parentKids = stats?.parent_kids || [];
+    
+    return (
+      <div className="space-y-6" data-testid="dashboard-parent-home">
+        {/* Welcome */}
+        <div className="relative overflow-hidden rounded-3xl bg-[#0A1128] text-white p-8 shadow-xl">
+          <div className="absolute -right-20 -top-20 w-80 h-80 bg-gradient-to-br from-[#FF5E3A]/40 to-transparent rounded-full blur-3xl" />
+          <div className="relative flex flex-col md:flex-row items-center justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-[#FF5E3A] font-semibold">Parent Portal</div>
+              <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">Namaste, {user?.name}</h1>
+              <p className="mt-1 text-sm text-neutral-300">Monitor your children's learning journey, attendance, and dues in real-time.</p>
+            </div>
+            <Link to="/app/ai/parent" className="btn-primary shrink-0 py-3 text-sm flex items-center gap-2">
+              <Sparkles className="w-4 h-4" /> Ask AI Saathi
+            </Link>
+          </div>
+        </div>
+
+        {/* Children details */}
+        <div>
+          <div className="label-eyebrow mb-3">Your Children</div>
+          {parentKids.length === 0 ? (
+            <div className="card-soft p-8 text-sm text-neutral-500 text-center">No children linked to this email address.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {parentKids.map((kid) => (
+                <div key={kid.id} className="card-soft p-6 space-y-4 border border-black/5 bg-white shadow-sm hover:border-black/10 transition">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-[#FFF3F0] text-[#FF5E3A] grid place-items-center text-xl font-display font-semibold">
+                      {kid.name.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="font-display text-lg font-semibold text-[#0A1128]">{kid.name}</h3>
+                      <p className="text-xs text-neutral-500">
+                        Class {kid.class_name} · Roll No: {kid.roll_no} · {kid.house ? `${kid.house} House` : ""}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Visual metrics bar */}
+                  <div className="grid grid-cols-3 gap-2 bg-neutral-50 rounded-xl p-3 text-center">
+                    <div>
+                      <div className="text-[10px] text-neutral-400 uppercase font-semibold">Attendance</div>
+                      <div className="text-sm font-semibold mt-0.5 text-emerald-600">{kid.attendance_rate}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-neutral-400 uppercase font-semibold">Academic Avg</div>
+                      <div className="text-sm font-semibold mt-0.5 text-[#FF5E3A]">{kid.academic_average}%</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-neutral-400 uppercase font-semibold">Pending Fees</div>
+                      <div className="text-sm font-semibold mt-0.5 text-[#0A1128]">{fmtINR(kid.pending_fees)}</div>
+                    </div>
+                  </div>
+
+                  {kid.class_teacher && (
+                    <div className="text-xs border-t border-black/5 pt-3 flex items-center justify-between text-neutral-600">
+                      <span>Class Teacher: <strong>{kid.class_teacher.name}</strong></span>
+                      <span className="text-neutral-400">{kid.class_teacher.core_subject}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 pt-2">
+                    <Link to="/app/exams" className="btn-ghost text-xs py-2 text-center border border-black/5 hover:border-black/10 bg-white">View Marks</Link>
+                    <Link to="/app/attendance" className="btn-ghost text-xs py-2 text-center border border-black/5 hover:border-black/10 bg-white">Attendance Logs</Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Circulars */}
+        <div className="card-soft p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="label-eyebrow">Announcements</div>
+              <h3 className="font-display text-xl font-semibold mt-1">Important circulars for parents</h3>
+            </div>
+            <Link to="/app/circulars" className="text-xs text-[#FF5E3A] font-semibold">View all circulars</Link>
+          </div>
+          <div className="divide-y divide-black/5">
+            {circulars.length === 0 && <div className="text-sm text-neutral-500 py-6 text-center">No circulars posted yet.</div>}
+            {circulars.map((cc) => (
+              <div key={cc.id} className="py-4 flex items-start gap-4">
+                <div className="w-9 h-9 rounded-lg bg-[#FFF3F0] text-[#FF5E3A] grid place-items-center text-xs font-semibold uppercase shrink-0">{cc.audience.slice(0,2)}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm text-[#0A1128]">{cc.title}</div>
+                  <div className="text-xs text-neutral-500 mt-0.5 line-clamp-2">{cc.body}</div>
+                  <div className="text-[10px] text-neutral-400 mt-1">by {cc.author} · {new Date(cc.created_at).toLocaleDateString("en-IN")}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // ADMIN/TEACHER RENDER (ORIGINAL OVERHAULED)
+  // ==========================================
   return (
     <div className="space-y-6" data-testid="dashboard-home">
       <div className="flex items-end justify-between flex-wrap gap-4">
@@ -92,9 +349,21 @@ export default function Dashboard() {
           <h1 className="mt-2 font-display text-3xl md:text-4xl font-semibold tracking-tight">Today at a glance</h1>
           <p className="mt-1 text-sm text-neutral-500">{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
         </div>
-        <Link to="/app/ai/insights" className="btn-primary text-sm py-2.5" data-testid="open-insights-cta">
-          <Sparkles className="w-4 h-4" /> Generate AI brief
-        </Link>
+        <div className="flex items-center gap-2">
+          {(user?.role === "school_admin" || user?.role === "super_admin") && (
+            <button 
+              disabled={resetting}
+              onClick={handleResetSystem} 
+              className={`btn-ghost border ${resetting ? "border-neutral-200 text-neutral-400 cursor-not-allowed" : "border-red-200 text-red-600 hover:bg-red-50"} text-sm py-2.5 flex items-center gap-2`} 
+              data-testid="reset-system-cta"
+            >
+              <Trash2 className="w-4 h-4" /> {resetting ? "Resetting System..." : "Reset System Data"}
+            </button>
+          )}
+          <Link to="/app/ai/insights" className="btn-primary text-sm py-2.5" data-testid="open-insights-cta">
+            <Sparkles className="w-4 h-4" /> Generate AI brief
+          </Link>
+        </div>
       </div>
 
       {user?.role === "teacher" && teacherContext && (
@@ -325,21 +594,11 @@ export default function Dashboard() {
           <div className="absolute -bottom-20 -right-20 w-48 h-48 bg-[#FF5E3A]/30 rounded-full blur-3xl" />
           <div className="relative">
             <div className="label-eyebrow text-white/60">Quick actions</div>
-            <h3 className="font-display text-xl font-semibold mt-1">{isParent ? "Stay close to your child" : isStudent ? "Stay on top" : "Run your day"}</h3>
+            <h3 className="font-display text-xl font-semibold mt-1">Run your day</h3>
             <div className="mt-4 grid gap-2 text-sm">
-              {(isParent || isStudent) ? (
-                <>
-                  <Link to="/app/ai/parent" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-ai-parent">Ask AI Saathi</Link>
-                  <Link to="/app/fees" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-fees">Pay pending fees</Link>
-                  <Link to="/app/exams" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-exams">View latest marks</Link>
-                </>
-              ) : (
-                <>
-                  <Link to="/app/ai/teacher" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-ai-teacher">Generate lesson plan</Link>
-                  <Link to="/app/attendance" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-attendance">Mark attendance</Link>
-                  <Link to="/app/circulars" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-circular">Post a circular</Link>
-                </>
-              )}
+              <Link to="/app/ai/teacher" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-ai-teacher">Generate lesson plan</Link>
+              <Link to="/app/attendance" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-attendance">Mark attendance</Link>
+              <Link to="/app/circulars" className="rounded-lg bg-white/10 hover:bg-white/15 px-4 py-3 transition" data-testid="qa-circular">Post a circular</Link>
             </div>
           </div>
         </div>

@@ -56,14 +56,25 @@ export default function StudentProfile() {
           </div>
         </div>
 
-        <div className="card-soft p-6 !bg-[#0A1128] text-white">
-          <div className="label-eyebrow text-white/60">Family</div>
-          <div className="mt-3 text-sm space-y-2">
-            <div><span className="text-white/60">Parent email:</span> {s.parent_email || "—"}</div>
-            <div><span className="text-white/60">Phone:</span> {s.parent_phone || "—"}</div>
-            <div><span className="text-white/60">Address:</span> {s.address || "—"}</div>
-            <div><span className="text-white/60">DOB:</span> {s.dob || "—"}</div>
+        <div className="card-soft p-6 !bg-[#0A1128] text-white space-y-4">
+          <div>
+            <div className="label-eyebrow text-white/60">Family</div>
+            <div className="mt-2 text-sm space-y-1">
+              <div><span className="text-white/60">Parent email:</span> {s.parent_email || "—"}</div>
+              <div><span className="text-white/60">Phone:</span> {s.parent_phone || "—"}</div>
+              <div><span className="text-white/60">Address:</span> {s.address || "—"}</div>
+              <div><span className="text-white/60">DOB:</span> {s.dob || "—"}</div>
+            </div>
           </div>
+          {s.student_email && (
+            <div className="border-t border-white/10 pt-3">
+              <div className="label-eyebrow text-[#FF5E3A]">Student Login Credentials</div>
+              <div className="mt-2 text-sm space-y-1">
+                <div><span className="text-white/60">Email:</span> <span className="font-mono text-xs select-all text-neutral-300">{s.student_email}</span></div>
+                {s.password_hint && <div><span className="text-white/60">Password:</span> <span className="font-mono text-xs text-neutral-300">{s.password_hint}</span></div>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

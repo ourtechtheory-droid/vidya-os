@@ -37,12 +37,20 @@ export default function Timetable() {
   const periods = active?.periods_per_day || classes.find((c) => c.id === classId)?.periods_per_day || 8;
   const selectedClass = classes.find((c) => c.id === classId);
 
+  // Safe fallback UUID generator
+  const generateUUID = () => {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return "uuid-" + Math.random().toString(36).substring(2, 15) + "-" + Math.random().toString(36).substring(2, 15);
+  };
+
   const newBlankEntries = () =>
     days.flatMap((day) =>
       Array.from({ length: periods }, (_, i) => {
         const period = i + 1;
         return {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           day,
           period,
           type: period === 4 ? "break" : "class",
@@ -58,7 +66,7 @@ export default function Timetable() {
   const createBlank = () => {
     if (!classId) return;
     const table = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       class_id: classId,
       class_name: selectedClass?.name || "Class",
       days,
@@ -101,17 +109,52 @@ export default function Timetable() {
     toast.success("Timetable saved");
   };
 
-  const moveEntry = (fromId, toId) => {
+  const moveEntryToSlot = (fromId, targetDay, targetPeriod) => {
     const table = timetables.find((t) => t.class_id === classId);
     if (!table) return;
     const from = table.entries.find((e) => e.id === fromId);
-    const to = table.entries.find((e) => e.id === toId);
-    if (!from || !to || from.type === "break") return;
-    updateEntry(from.id, { day: to.day, period: to.period });
-    updateEntry(to.id, { day: from.day, period: from.period });
+    if (!from || from.type === "break") return;
+
+    const to = table.entries.find((e) => e.day === targetDay && e.period === targetPeriod);
+    if (to) {
+      if (to.type === "break") return;
+      const fromDay = from.day;
+      const fromPeriod = from.period;
+      updateEntry(from.id, { day: targetDay, period: targetPeriod });
+      updateEntry(to.id, { day: fromDay, period: fromPeriod });
+      toast.success(`Swapped slots successfully`);
+    } else {
+      updateEntry(from.id, { day: targetDay, period: targetPeriod });
+      toast.success(`Moved subject to slot successfully`);
+    }
   };
 
   const cell = (day, period) => active?.entries?.find((e) => e.day === day && e.period === period);
+
+  // Subject options computing (uses class subjects or premium standard list fallback)
+  const subjectOptions = useMemo(() => {
+    if (selectedClass?.subjects && selectedClass.subjects.length > 0) {
+      return selectedClass.subjects;
+    }
+    return ["Maths", "Science", "Social Science", "English", "Hindi", "Telugu", "Art", "Physical Education", "Computer Science"];
+  }, [selectedClass]);
+
+  // Premium HSL-aligned color tag based on subject content
+  const getSubjectStyle = (entry) => {
+    if (entry.type === "break") return "bg-neutral-100 text-neutral-500 border border-neutral-200/60";
+    if (entry.type === "lab") return "bg-[#E6F8F3] text-[#2F5D3A] border border-[#2F5D3A]/20 shadow-sm";
+
+    const sub = (entry.subject || entry.title || "").toLowerCase();
+    if (sub.includes("math")) return "bg-blue-50 text-blue-800 border border-blue-200/50 shadow-sm";
+    if (sub.includes("scien") || sub.includes("phy") || sub.includes("chem") || sub.includes("bio")) return "bg-emerald-50 text-emerald-800 border border-emerald-200/50 shadow-sm";
+    if (sub.includes("soc") || sub.includes("hist") || sub.includes("geo")) return "bg-amber-50 text-amber-800 border border-amber-200/50 shadow-sm";
+    if (sub.includes("eng")) return "bg-indigo-50 text-indigo-800 border border-indigo-200/50 shadow-sm";
+    if (sub.includes("hin") || sub.includes("tel") || sub.includes("lang")) return "bg-purple-50 text-purple-800 border border-purple-200/50 shadow-sm";
+    if (sub.includes("art") || sub.includes("music") || sub.includes("phys")) return "bg-pink-50 text-pink-800 border border-pink-200/50 shadow-sm";
+    if (sub.includes("comp")) return "bg-cyan-50 text-cyan-800 border border-cyan-200/50 shadow-sm";
+
+    return "bg-[#FFF3F0] text-[#0A1128] border border-orange-200/40 shadow-sm";
+  };
 
   return (
     <div className="space-y-6" data-testid="timetable-page">
@@ -130,13 +173,13 @@ export default function Timetable() {
       </div>
 
       <div className="card-soft p-5 flex flex-wrap items-center gap-3">
-        <select value={classId} onChange={(e) => setClassId(e.target.value)} className="px-4 py-2.5 rounded-full bg-white border border-black/10 text-sm">
+        <select value={classId} onChange={(e) => setClassId(e.target.value)} className="px-4 py-2.5 rounded-full bg-white border border-black/10 text-sm focus:ring-brand outline-none">
           {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <div className="flex rounded-full bg-black/[0.04] p-1">
           {["class", "teacher"].map((mode) => <button key={mode} onClick={() => setView(mode)} className={`px-4 py-1.5 rounded-full text-sm capitalize ${view === mode ? "bg-white shadow-sm" : "text-neutral-500"}`}>{mode}-wise</button>)}
         </div>
-        {view === "teacher" && <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="px-4 py-2.5 rounded-full bg-white border border-black/10 text-sm">
+        {view === "teacher" && <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="px-4 py-2.5 rounded-full bg-white border border-black/10 text-sm focus:ring-brand outline-none">
           {teachers.map((t) => <option key={t.user_id} value={t.user_id}>{t.name}</option>)}
         </select>}
         <div className="ml-auto flex items-center gap-2 text-xs text-[#10B981] font-medium"><Users className="w-4 h-4" /> Conflict checks enabled</div>
@@ -151,26 +194,59 @@ export default function Timetable() {
               <div key={`p-${period}`} className="p-3 border-t border-black/5 text-xs text-neutral-500">P{period}<div>{periodTime(period)}</div></div>
               {days.map((day) => {
                 const entry = cell(day, period);
+                const isDraggable = entry && entry.type !== "break";
                 return (
-                  <div key={`${day}-${period}`} onDragOver={(e) => e.preventDefault()} onDrop={(e) => moveEntry(e.dataTransfer.getData("entry"), entry?.id)} className="p-2 border-t border-l border-black/5 min-h-24">
+                  <div 
+                    key={`${day}-${period}`} 
+                    onDragOver={(e) => e.preventDefault()} 
+                    onDrop={(e) => moveEntryToSlot(e.dataTransfer.getData("entry"), day, period)} 
+                    className="p-2 border-t border-l border-black/5 min-h-28 transition-colors duration-200 hover:bg-neutral-50/40 relative group"
+                  >
                     {entry ? (
-                      <div draggable={entry.type !== "break"} onDragStart={(e) => e.dataTransfer.setData("entry", entry.id)} className={`h-full rounded-xl p-3 ${entry.type === "break" ? "bg-neutral-100 text-neutral-500" : entry.type === "lab" ? "bg-[#E6F8F3] text-[#2F5D3A]" : "bg-[#FFF3F0] text-[#0A1128]"}`}>
-                        <div className="flex items-start gap-2">
-                          <GripVertical className="w-4 h-4 shrink-0 opacity-50" />
+                      <div 
+                        draggable={isDraggable} 
+                        onDragStart={(e) => e.dataTransfer.setData("entry", entry.id)} 
+                        className={`h-full rounded-xl p-3 flex flex-col justify-between transition-all duration-200 ${isDraggable ? "hover:scale-[1.02] active:scale-[0.98] cursor-grab active:cursor-grabbing" : ""} ${getSubjectStyle(entry)}`}
+                      >
+                        <div className="flex items-start gap-1">
+                          {isDraggable && <GripVertical className="w-3.5 h-3.5 shrink-0 opacity-40 mt-1 cursor-grab" />}
                           <div className="min-w-0 flex-1">
-                            <input value={entry.title} onChange={(e) => updateEntry(entry.id, { title: e.target.value, subject: e.target.value })} disabled={entry.type === "break"} className="w-full bg-transparent font-semibold text-sm outline-none" />
-                            <select value={entry.teacher_id} onChange={(e) => {
-                              const teacher = teachers.find((t) => t.user_id === e.target.value);
-                              updateEntry(entry.id, { teacher_id: e.target.value, teacher_name: teacher?.name || "Unassigned" });
-                            }} disabled={entry.type === "break"} className="mt-1 w-full bg-transparent text-xs outline-none">
-                              <option value="">Unassigned</option>
-                              {teachers.map((t) => <option key={t.user_id} value={t.user_id}>{t.name}</option>)}
-                            </select>
-                            <div className="mt-1 text-[11px] opacity-70">{entry.room}</div>
+                            {entry.type === "break" ? (
+                              <div className="font-bold text-sm tracking-wide text-neutral-500 uppercase">{entry.title || "Break"}</div>
+                            ) : (
+                              <select 
+                                value={entry.subject || entry.title || ""} 
+                                onChange={(e) => updateEntry(entry.id, { title: e.target.value, subject: e.target.value })} 
+                                className="w-full bg-transparent font-bold text-sm outline-none cursor-pointer text-inherit hover:underline"
+                              >
+                                <option value="" className="text-[#0A1128]">-- Choose --</option>
+                                {subjectOptions.map((sub) => (
+                                  <option key={sub} value={sub} className="text-[#0A1128] font-medium">{sub}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            {entry.type !== "break" && (
+                              <select 
+                                value={entry.teacher_id || ""} 
+                                onChange={(e) => {
+                                  const teacher = teachers.find((t) => t.user_id === e.target.value);
+                                  updateEntry(entry.id, { teacher_id: e.target.value, teacher_name: teacher?.name || "Unassigned" });
+                                }} 
+                                className="mt-1.5 w-full bg-transparent text-[11px] outline-none cursor-pointer text-inherit/80 font-medium"
+                              >
+                                <option value="" className="text-[#0A1128]">Unassigned</option>
+                                {teachers.map((t) => <option key={t.user_id} value={t.user_id} className="text-[#0A1128]">{t.name}</option>)}
+                              </select>
+                            )}
+                            
+                            <div className="mt-2 text-[10px] uppercase tracking-wider opacity-75 font-semibold">{entry.room}</div>
                           </div>
                         </div>
                       </div>
-                    ) : <div className="h-full rounded-xl border border-dashed border-black/10" />}
+                    ) : (
+                      <div className="h-full rounded-xl border-2 border-dashed border-neutral-200 group-hover:border-neutral-300 group-hover:bg-neutral-50 transition-all duration-200 min-h-[80px]" />
+                    )}
                   </div>
                 );
               })}

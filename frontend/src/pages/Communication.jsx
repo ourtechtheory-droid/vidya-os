@@ -360,6 +360,104 @@ function TemplateEditor({ value, onChange, onSave, onCancel }) {
   );
 }
 
+// Visual Phone & Desktop Client preview tool for premium user experience
+function LiveDeviceMockup({ channel, title, body }) {
+  const getProcessedBody = () => {
+    if (!body) return <span className="text-neutral-400 italic">Start typing your message to see a live preview...</span>;
+    const parts = body.split(/(\{student_name\}|\{parent_name\}|\{class\}|\{roll_no\}|\{date\}|\{school\})/g);
+    return parts.map((part, index) => {
+      if (part.startsWith("{") && part.endsWith("}")) {
+        return (
+          <span key={index} className="px-1 py-0.5 rounded bg-orange-100 text-orange-800 font-mono text-[9px] font-bold border border-orange-200/50">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
+  if (channel === "email") {
+    return (
+      <div className="w-full max-w-[280px] h-[390px] rounded-2xl border border-black/10 bg-slate-50 flex flex-col shadow-lg overflow-hidden anim-pop">
+        <div className="bg-[#0A1128] text-white p-3 flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wider font-semibold">Email Preview</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+        </div>
+        <div className="bg-white border-b border-black/5 p-3 space-y-1">
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <span className="text-neutral-400 w-8">To:</span>
+            <span className="px-2 py-0.5 rounded bg-neutral-100 text-neutral-600 truncate max-w-[180px]">parent@aischool.io</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <span className="text-neutral-400 w-8">Subject:</span>
+            <span className="text-neutral-800 font-bold truncate max-w-[180px]">{title || "(No Subject)"}</span>
+          </div>
+        </div>
+        <div className="p-3 bg-white flex-1 overflow-auto text-[10.5px] text-neutral-800 leading-relaxed font-sans">
+          <div className="border-b border-neutral-100 pb-1.5 mb-2 text-[9px] text-neutral-400 flex items-center justify-between">
+            <span>From: VidyaOS Mailer</span>
+            <span>Just now</span>
+          </div>
+          <div className="whitespace-pre-wrap">{getProcessedBody()}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const isWhatsApp = channel === "whatsapp";
+  return (
+    <div className="relative mx-auto w-[240px] h-[390px] rounded-[32px] border-[6px] border-neutral-800 bg-neutral-900 shadow-xl overflow-hidden flex flex-col anim-pop">
+      <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-16 h-3 bg-neutral-800 rounded-full z-20 flex items-center justify-center">
+        <div className="w-8 h-0.5 bg-neutral-900 rounded-full" />
+      </div>
+      <div className="flex-1 bg-[#efeae2] pt-6 flex flex-col justify-between overflow-hidden relative font-sans">
+        {isWhatsApp ? (
+          <>
+            <div className="bg-[#075e54] text-white p-2 flex items-center gap-1 z-10 shadow-sm">
+              <div className="w-5 h-5 rounded-full bg-[#FF5E3A] text-white grid place-items-center text-[9px] font-bold">Vi</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-semibold leading-tight truncate">VidyaOS Broadcast</div>
+                <div className="text-[7.5px] text-emerald-200">Online</div>
+              </div>
+            </div>
+            <div className="flex-1 p-2 overflow-y-auto space-y-1.5 flex flex-col justify-start">
+              <div className="mx-auto bg-[#e1f3fc] text-[#4a4a4a] text-[8px] px-2 py-0.5 rounded shadow-sm text-center font-medium max-w-[90%]">
+                🔒 Private & secure broadcast
+              </div>
+              <div className="self-start bg-white rounded-lg p-2 shadow-sm max-w-[85%] relative text-[10px] text-neutral-800 leading-normal">
+                {title && <div className="font-bold text-[#075e54] border-b border-neutral-100 pb-1 mb-1 text-[9px]">{title}</div>}
+                <div className="whitespace-pre-wrap">{getProcessedBody()}</div>
+                <div className="text-right text-[7px] text-neutral-400 mt-1">Just now</div>
+              </div>
+            </div>
+            <div className="bg-[#f0f0f0] p-1 flex items-center gap-1 border-t border-neutral-200">
+              <div className="flex-1 bg-white rounded-full h-5 px-2 flex items-center text-[9px] text-neutral-400">Message...</div>
+              <div className="w-5 h-5 rounded-full bg-[#075e54] grid place-items-center text-white text-[9px]">💬</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-neutral-100 text-neutral-800 p-1.5 text-center border-b border-neutral-200 z-10 font-medium text-[9px]">
+              <div>Sender: <span className="font-bold">VD-VIDYAOS</span></div>
+            </div>
+            <div className="flex-1 p-2 overflow-y-auto space-y-1.5 flex flex-col justify-start bg-neutral-50">
+              <div className="self-start bg-neutral-200 text-neutral-800 rounded-xl px-2.5 py-1.5 text-[9.5px] max-w-[85%] leading-normal">
+                <div className="whitespace-pre-wrap">{getProcessedBody()}</div>
+              </div>
+              <div className="text-left text-[7px] text-neutral-400 pl-1.5">Just now · SMS</div>
+            </div>
+            <div className="bg-neutral-100 p-1 flex items-center gap-1 border-t border-neutral-200">
+              <div className="flex-1 bg-white border border-neutral-300 rounded-full h-5 px-2 flex items-center text-[9px] text-neutral-400">Text Message</div>
+              <div className="w-4.5 h-4.5 rounded-full bg-[#FF5E3A] grid place-items-center text-white text-[8px]">↑</div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Communication() {
   const [tab, setTab] = useState("compose"); // compose | templates | history
   const [messages, setMessages] = useState([]);
@@ -503,7 +601,6 @@ export default function Communication() {
       toast.error("Enter a phone or email");
       return;
     }
-    // Need to create a draft message first to test against. Easiest: create the message normally and immediately also fire a test.
     try {
       const payload = { ...buildPayload(), scheduled_at: null };
       const { data: draft } = await api.post("/messages", payload);
@@ -580,9 +677,9 @@ export default function Communication() {
   const tabBtn = (id, label, Icon) => (
     <button
       onClick={() => setTab(id)}
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition ${
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
         tab === id
-          ? "bg-[#0A1128] text-white"
+          ? "bg-[#0A1128] text-white shadow-sm"
           : "text-neutral-600 hover:bg-black/[0.04]"
       }`}
     >
@@ -594,7 +691,7 @@ export default function Communication() {
   const channelDef = CHANNELS.find((c) => c.id === form.channel);
 
   return (
-    <div className="space-y-6" data-testid="communication-page">
+    <div className="space-y-6 animate-fade-in" data-testid="communication-page">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="label-eyebrow">Messaging command center</div>
@@ -616,12 +713,12 @@ export default function Communication() {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
           ["Recipients", stats.sent, MessageCircle, "bg-[#0A1128] text-white"],
-          ["Delivered", stats.delivered, CheckCheck, "bg-[#E6F8F3] text-[#10B981]"],
-          ["Read", stats.read, CheckCircle2, "bg-[#FFF3F0] text-[#FF5E3A]"],
-          ["Failed", stats.failed, XCircle, "bg-[#FCE4E4] text-[#a93a3a]"],
-          ["Scheduled", stats.scheduled, Clock, "bg-white text-[#0A1128]"],
+          ["Delivered", stats.delivered, CheckCheck, "bg-emerald-500 text-white"],
+          ["Read", stats.read, CheckCircle2, "bg-indigo-500 text-white"],
+          ["Failed", stats.failed, XCircle, "bg-rose-500 text-white"],
+          ["Scheduled", stats.scheduled, Clock, "bg-amber-500 text-white"],
         ].map(([label, value, Icon, cls]) => (
-          <div key={label} className="card-soft p-4">
+          <div key={label} className="card-soft p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
             <div className={`w-9 h-9 rounded-lg grid place-items-center ${cls}`}>
               <Icon className="w-4 h-4" />
             </div>
@@ -632,9 +729,9 @@ export default function Communication() {
       </div>
 
       {tab === "compose" && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="card-soft p-6 xl:col-span-2 space-y-4">
-            <div className="label-eyebrow">Compose</div>
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <div className="card-soft p-6 xl:col-span-2 space-y-4 shadow-sm border-black/[0.04]">
+            <div className="label-eyebrow">Compose Message</div>
 
             <div className="grid grid-cols-3 gap-2">
               {CHANNELS.map((c) => {
@@ -644,16 +741,16 @@ export default function Communication() {
                   <button
                     key={c.id}
                     onClick={() => setForm((v) => ({ ...v, channel: c.id }))}
-                    className={`p-2 rounded-lg border text-left transition ${
+                    className={`p-2 rounded-lg border text-left transition-all duration-200 ${
                       active
-                        ? "border-[#FF5E3A] bg-[#FFF3F0]"
-                        : "border-black/10 hover:border-black/30"
+                        ? "border-[#FF5E3A] bg-[#FFF3F0] ring-1 ring-[#FF5E3A] text-[#0A1128]"
+                        : "border-black/10 hover:border-black/30 text-neutral-600"
                     }`}
                   >
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Icon className="w-4 h-4" /> {c.name}
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Icon className="w-4 h-4 shrink-0" /> {c.name}
                     </div>
-                    <div className="text-[10px] text-neutral-500 mt-0.5">
+                    <div className="text-[10px] text-neutral-400 mt-0.5">
                       via {c.provider}
                     </div>
                   </button>
@@ -667,7 +764,7 @@ export default function Communication() {
                 onChange={(e) =>
                   setForm((v) => ({ ...v, audience: e.target.value, section: "" }))
                 }
-                className="px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
+                className="px-3 py-2 rounded-lg bg-white border border-black/10 text-sm focus:ring-brand outline-none"
               >
                 <option value="parents">Parents</option>
                 <option value="teachers">Teachers</option>
@@ -682,7 +779,7 @@ export default function Communication() {
                   setForm((v) => ({ ...v, class_id: e.target.value }))
                 }
                 disabled={["teachers", "all"].includes(form.audience)}
-                className="px-3 py-2 rounded-lg bg-white border border-black/10 text-sm disabled:opacity-50"
+                className="px-3 py-2 rounded-lg bg-white border border-black/10 text-sm disabled:opacity-50 focus:ring-brand outline-none"
               >
                 <option value="">— all classes —</option>
                 {classes.map((c) => (
@@ -699,7 +796,7 @@ export default function Communication() {
                 onChange={(e) =>
                   setForm((v) => ({ ...v, section: e.target.value }))
                 }
-                className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm focus:ring-brand outline-none"
                 placeholder="Section, e.g. A"
               />
             )}
@@ -709,7 +806,7 @@ export default function Communication() {
               onChange={(e) =>
                 setForm((v) => ({ ...v, category: e.target.value }))
               }
-              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm capitalize"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm capitalize focus:ring-brand outline-none"
             >
               {CATEGORIES.map((c) => (
                 <option key={c} value={c} className="capitalize">
@@ -723,8 +820,8 @@ export default function Communication() {
               onChange={(e) =>
                 setForm((v) => ({ ...v, title: e.target.value }))
               }
-              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
-              placeholder="Message title (internal)"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm focus:ring-brand outline-none"
+              placeholder="Message title (internal tracking)"
             />
             <textarea
               value={form.body}
@@ -732,7 +829,7 @@ export default function Communication() {
                 setForm((v) => ({ ...v, body: e.target.value }))
               }
               rows={5}
-              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm resize-none"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm resize-none focus:ring-brand outline-none font-sans leading-relaxed"
               placeholder="Body — use placeholders for personalisation. Click chips below to insert."
             />
             <div className="flex flex-wrap gap-1.5">
@@ -743,21 +840,25 @@ export default function Communication() {
                   onClick={() =>
                     setForm((v) => ({ ...v, body: (v.body || "") + p }))
                   }
-                  className="text-[11px] px-2 py-0.5 bg-black/[0.04] hover:bg-black/[0.08] rounded text-neutral-700 font-mono"
+                  className="text-[11px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 active:scale-95 transition rounded text-neutral-700 font-mono border border-black/5"
                 >
                   {p}
                 </button>
               ))}
             </div>
 
-            <input
-              type="datetime-local"
-              value={form.scheduled_at}
-              onChange={(e) =>
-                setForm((v) => ({ ...v, scheduled_at: e.target.value }))
-              }
-              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
-            />
+            <div className="space-y-1">
+              <label className="block text-xs text-neutral-500 font-medium">Schedule Broadcast (Optional)</label>
+              <input
+                type="datetime-local"
+                value={form.scheduled_at}
+                onChange={(e) =>
+                  setForm((v) => ({ ...v, scheduled_at: e.target.value }))
+                }
+                className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm focus:ring-brand outline-none"
+              />
+            </div>
+
 
             <div className="flex flex-wrap gap-2">
               <button
@@ -776,6 +877,17 @@ export default function Communication() {
               >
                 <Inbox className="w-4 h-4" /> Send test
               </button>
+            </div>
+          </div>
+
+          {/* Dynamic Interactive device/client live preview panel */}
+          <div className="card-soft p-5 flex flex-col items-center justify-start bg-neutral-50/50 border border-black/5 shadow-sm">
+            <div className="label-eyebrow mb-4 self-start">Interactive Preview</div>
+            <div className="flex-1 w-full flex items-center justify-center py-2">
+              <LiveDeviceMockup channel={form.channel} title={form.title} body={form.body} />
+            </div>
+            <div className="mt-4 text-center text-[11px] text-neutral-400 italic">
+              Values in <span className="font-semibold text-[#FF5E3A]">{"{brackets}"}</span> will merge with personal profile details at send time.
             </div>
           </div>
 

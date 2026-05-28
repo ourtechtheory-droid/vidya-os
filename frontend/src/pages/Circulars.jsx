@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Megaphone, Plus, X } from "lucide-react";
+import { Megaphone, Plus, X, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export default function Circulars() {
@@ -34,6 +34,18 @@ const canPost = ["super_admin", "school_admin", "teacher"].includes(user?.role);
     }
   };
 
+  const deleteCircular = async (id) => {
+    const confirmed = window.confirm("Are you sure you want to delete this circular?");
+    if (!confirmed) return;
+    try {
+      await api.delete(`/circulars/${id}`);
+      toast.success("Circular deleted successfully");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to delete circular");
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="circulars-page">
       <div className="flex items-end justify-between flex-wrap gap-4">
@@ -52,12 +64,19 @@ const canPost = ["super_admin", "school_admin", "teacher"].includes(user?.role);
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {list.length === 0 && <div className="card-soft p-8 text-sm text-neutral-500">No announcements yet.</div>}
         {list.map((c) => (
-          <div key={c.id} className="card-soft p-6" data-testid={`circular-card-${c.id}`}>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FFF3F0] text-[#FF5E3A] font-semibold uppercase tracking-wider"><Megaphone className="w-3 h-3" /> {c.audience}</span>
-              <span className="text-neutral-400">{new Date(c.created_at).toLocaleString("en-IN")}</span>
+          <div key={c.id} className="card-soft p-6 bg-white border border-black/5" data-testid={`circular-card-${c.id}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FFF3F0] text-[#FF5E3A] font-semibold uppercase tracking-wider"><Megaphone className="w-3 h-3" /> {c.audience}</span>
+                <span className="text-neutral-400">{new Date(c.created_at).toLocaleString("en-IN")}</span>
+              </div>
+              {canPost && (
+                <button onClick={() => deleteCircular(c.id)} className="p-2 rounded-lg text-neutral-400 hover:text-[#FF5E3A] hover:bg-[#FFF3F0] transition" aria-label="delete circular" data-testid={`delete-circular-${c.id}`}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
-            <h3 className="mt-3 font-display text-xl font-semibold">{c.title}</h3>
+            <h3 className="mt-3 font-display text-xl font-semibold text-[#0A1128]">{c.title}</h3>
             <p className="mt-2 text-sm text-neutral-700 leading-relaxed">{c.body}</p>
             <div className="mt-4 text-xs text-neutral-500">— {c.author} ({c.author_role.replace("_", " ")})</div>
           </div>
