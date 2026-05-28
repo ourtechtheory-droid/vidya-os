@@ -1,51 +1,39 @@
-# VidyaOS AWS Deployment Guide
+# VidyaOS AWS Deployment Guide (with Local MongoDB Setup)
 
 This guide details two standard paths to deploy the VidyaOS stack (FastAPI Backend + React Frontend + MongoDB Database) on AWS:
-1. **Option A (Recommended for Simplicity & Low Cost)**: Single EC2 Ubuntu Instance running an Nginx reverse proxy, systemd backend services, and a MongoDB Atlas managed database.
+1. **Option A (Recommended for Simplicity & Low Cost)**: Single EC2 Ubuntu Instance running MongoDB **locally**, Nginx reverse proxy, and systemd backend services.
 2. **Option B (Recommended for Production & High Scale)**: Serverless static hosting (AWS S3 + CloudFront) with a serverless containerized backend (AWS App Runner) and MongoDB Atlas.
 
 ---
 
-## 🏗️ Deployment Architecture (Option A)
+## 🏗️ Deployment Architecture (Option A - Local DB)
 
 ```mermaid
 graph TD
     User([User Browser]) -- HTTPS (Port 443) --> Nginx[Nginx Reverse Proxy]
     Nginx -- Static Routing --> StaticFE[React Static Files /var/www/html]
     Nginx -- Reverse Proxy (Port 8001) --> FastAPI[FastAPI Backend / Uvicorn]
-    FastAPI -- Secure Connection --> MongoDB[(MongoDB Atlas Cloud)]
+    FastAPI -- Local Connection --> MongoDB[(Local MongoDB Service)]
 ```
 
 ---
 
-## 🗄️ Step 0: Set Up MongoDB Database (MongoDB Atlas)
-
-Since MongoDB is required, hosting it on MongoDB Atlas (managed cloud service) is the most reliable, secure, and cost-effective approach.
-
-1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) and register for a free account.
-2. Click **Create Database** -> Choose the **M0 Shared Free Tier** -> Choose your preferred AWS region.
-3. In **Security Quickstart**:
-   * Create a database user (e.g. `vidya_admin`) and generate a secure password.
-   * Add `0.0.0.0/0` under **Network Access** to allow connection from AWS (or whitelist the EC2 IP once provisioned).
-4. Click **Database** -> **Connect** -> Choose **Drivers** (Python).
-5. Copy the connection string. It looks like:
-   `mongodb+srv://vidya_admin:<password>@cluster0.xxxx.mongodb.net/?retryWrites=true&w=majority`
-
----
-
-## 🚀 Option A: Single EC2 Instance + Nginx Setup (Easiest & Most Popular)
+## 🚀 Option A: Single EC2 Instance + Local MongoDB & Nginx Setup
 
 ### Step 1: Provision your EC2 Instance
 1. Open the **AWS Console** and navigate to **EC2** -> **Launch Instance**.
 2. **Name**: `vidya-os-server`.
 3. **OS**: **Ubuntu Server 24.04 LTS** (HVM), SSD Volume Type.
-4. **Instance Type**: `t3.small` (2 vCPUs, 2 GiB RAM recommended for building/running Node assets) or `t3.micro` (free-tier eligible).
+4. **Instance Type**: `t3.small` (2 vCPUs, 2 GiB RAM recommended to avoid memory limits during Node builds) or `t3.micro`.
 5. **Key Pair**: Create a new `.pem` key pair or select an existing one to access the server via SSH.
 6. **Network Settings (Security Group)**:
    * [x] **Allow SSH traffic** (Port 22)
    * [x] **Allow HTTPS traffic** (Port 443)
    * [x] **Allow HTTP traffic** (Port 80)
+   * *Note: Keep MongoDB port `27017` blocked from public access to ensure database security.*
 7. Launch the instance.
+
+---
 
 ### Step 2: Access your EC2 Server & Install Dependencies
 From your terminal, SSH into your server (using the IP address of your EC2 instance):
@@ -53,18 +41,47 @@ From your terminal, SSH into your server (using the IP address of your EC2 insta
 ssh -i "your-key.pem" ubuntu@<ec2-public-ip-address>
 ```
 
-Once logged in, update the package manager and install Node.js, Python, Nginx, and Git:
+#### 1. System Package Updates & Node/Python Tools:
+Once logged in, update packages and install core build dependencies:
 ```bash
 sudo apt update && sudo apt upgrade -y
 
-# Install Python and Venv tools
-sudo apt install python3-pip python3-venv python3-dev build-essential git nginx -y
+# Install Python venv, Pip, Git, and Nginx
+sudo apt install python3-pip python3-venv python3-dev build-essential git nginx gnupg curl -y
 
 # Install Node.js (LTS v20)
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 sudo npm install --global yarn
 ```
+
+#### 2. Install MongoDB Community Edition Locally:
+Run the following commands to import the official GPG key, configure the repository list, and install MongoDB locally on your Ubuntu server:
+
+```bash
+# 1. Import MongoDB Public GPG Key
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+  sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+  --dearmor --yes
+
+# 2. Add MongoDB APT Repository
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+# 3. Update Package lists and Install MongoDB
+sudo apt update
+sudo apt install -y mongodb-org
+
+# 4. Start MongoDB and enable it to run automatically on system boot
+sudo systemctl start mongod
+sudo systemctl enable mongod
+```
+
+Ensure the MongoDB service is active and running cleanly:
+```bash
+sudo systemctl status mongod
+```
+
+---
 
 ### Step 3: Clone Code & Configure Environment
 Clone your repository into the `/var/www` directory:
@@ -87,9 +104,9 @@ Create a `.env` configuration file in `/var/www/vidya-os/backend/.env`:
 ```bash
 nano .env
 ```
-Add the following content (replacing with your MongoDB Atlas details):
+Add the following content (specifying the **local** MongoDB instance path):
 ```env
-MONGODB_URI=mongodb+srv://vidya_admin:<password>@cluster0.xxxx.mongodb.net/vidya_db?retryWrites=true&w=majority
+MONGODB_URI=mongodb://127.0.0.1:27017/vidya_db
 JWT_SECRET=super-secure-random-string-generate-your-own
 PORT=8001
 HOST=0.0.0.0
@@ -104,9 +121,9 @@ Create a `.env` configuration file in `/var/www/vidya-os/frontend/.env`:
 ```bash
 nano .env
 ```
-Add the server API path:
+Add the server API path (replace with your domain or server IP):
 ```env
-REACT_APP_API_URL=https://api.yourdomain.com
+REACT_APP_API_URL=https://yourdomain.com
 ```
 Now install dependencies and compile the production build:
 ```bash
@@ -208,26 +225,3 @@ sudo apt install certbot python3-certbot-nginx -y
 sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 ```
 Follow the interactive prompts to secure your domain. Nginx will automatically reload with fully valid SSL configurations and redirect HTTP requests to HTTPS!
-
----
-
-## ⚡ Option B: Modern Serverless Stack (Highly Scalable)
-
-If you prefer a managed serverless architecture without maintaining EC2 systems:
-
-### 1. Frontend (S3 + CloudFront CDN)
-* **S3 Bucket**: Create an AWS S3 bucket named `vidya-os-frontend`, check the properties to enable **Static Website Hosting**, and upload your `/frontend/build/` static folder content.
-* **CloudFront**: Create a CloudFront Distribution pointing to your S3 bucket website endpoint.
-  * Select **Redirect HTTP to HTTPS**.
-  * Use **ACM (AWS Certificate Manager)** to issue a free SSL certificate for your domain.
-
-### 2. Backend (AWS App Runner)
-AWS App Runner automatically pulls your code from GitHub, builds your python container, and serves it on an HTTPS endpoint with built-in auto-scaling.
-* Go to the **AWS App Runner Console** -> **Create Service**.
-* **Repository**: Connect your GitHub repository and select the `main` branch.
-* **Deployment Trigger**: Automatic (deploys every time you push to main!).
-* **Runtime**: Choose **Python 3**.
-* **Build Command**: `pip install -r requirements.txt`
-* **Start Command**: `uvicorn server:app --host 0.0.0.0 --port 8080`
-* **Environment Variables**: Define your `MONGODB_URI` and `JWT_SECRET` keys inside the console properties.
-* App Runner will output a secure URL (e.g. `https://xxxxxx.us-east-1.awsapprunner.com`). Update your React configuration's `REACT_APP_API_URL` to point to this endpoint.
