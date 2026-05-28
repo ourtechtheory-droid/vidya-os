@@ -3401,6 +3401,88 @@ async def _backfill_id_card_fields():
         )
 
 
+async def _seed_clean_core_system():
+    SCHOOL = "default-school"
+    # 1. Insert standard classes
+    classes = []
+    for cls in ["6", "7", "8", "9", "10"]:
+        for sec in ["A", "B"]:
+            classes.append({
+                "id": f"cls-{cls}{sec}", "name": f"Class {cls}-{sec}",
+                "grade": cls, "section": sec, "school_id": SCHOOL,
+                "subjects": ["Mathematics", "Science", "English", "Social Studies", "Hindi"]
+            })
+    await db.classes.insert_many(classes)
+    
+    # 2. Create core default users
+    users_seed = [
+        ("super@aischool.io", "Pass@1234", "Aarav Mehta", "super_admin"),
+        ("admin@aischool.io", "Pass@1234", "Priya Sharma", "school_admin"),
+        ("teacher@aischool.io", "Pass@1234", "Rohit Iyer", "teacher"),
+        ("student@aischool.io", "Pass@1234", "Ananya Reddy", "student"),
+        ("parent@aischool.io", "Pass@1234", "Sunita Reddy", "parent"),
+    ]
+    user_ids = {}
+    for email, pwd, name, role in users_seed:
+        uid = str(uuid.uuid4())
+        user_ids[role] = uid
+        await db.users.insert_one({
+            "id": uid, "email": email, "password": _hash_pwd(pwd),
+            "name": name, "role": role, "school_id": SCHOOL, "avatar": None,
+            "meta": {}, "created_at": now_iso(),
+        })
+        
+    # 3. Create one clean student profile linked to student@aischool.io and parent@aischool.io
+    student_id = str(uuid.uuid4())
+    student_profile = {
+        "id": student_id,
+        "name": "Ananya Reddy",
+        "roll_no": "1",
+        "class_id": "cls-9A",
+        "section": "A",
+        "gender": "F",
+        "dob": "2011-06-15",
+        "school_id": SCHOOL,
+        "parent_email": "parent@aischool.io",
+        "parent_phone": "+91-9000000000",
+        "address": "Hyderabad, India",
+        "house": "Eagle",
+        "category": "GEN",
+        "blood_group": "B+",
+        "created_by": user_ids["school_admin"],
+        "created_at": now_iso(),
+    }
+    await db.students.insert_one(student_profile)
+    
+    # Update student account user metadata with student_id
+    await db.users.update_one({"id": user_ids["student"]}, {"$set": {"meta": {"student_id": student_id}}})
+    
+    # 4. Create teacher profile for teacher@aischool.io
+    teacher_meta = {
+        "assigned_class_id": "cls-9A",
+        "phone_number": "+91-9000000001",
+        "gender": "M",
+        "core_subject": "Mathematics",
+    }
+    await db.users.update_one({"id": user_ids["teacher"]}, {"$set": {"meta": teacher_meta}})
+    await db.teacher_profiles.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_ids["teacher"],
+        "email": "teacher@aischool.io",
+        "name": "Rohit Iyer",
+        "phone_number": teacher_meta["phone_number"],
+        "gender": teacher_meta["gender"],
+        "assigned_class_id": teacher_meta["assigned_class_id"],
+        "core_subject": teacher_meta["core_subject"],
+        "profile_image": None,
+        "created_by": user_ids["school_admin"],
+        "created_at": now_iso(),
+    })
+    
+    # 5. Re-seed default templates
+    await _seed_message_templates_if_empty()
+
+
 @app.on_event("startup")
 async def _startup():
     # auto-seed once
@@ -3409,9 +3491,13 @@ async def _startup():
         await db.students.create_index("id", unique=True)
         await db.teacher_profiles.create_index("user_id", unique=True)
         count = await db.users.count_documents({})
-        if count == 0 and AUTO_SEED_DEMO_DATA:
-            await seed_data()
-            logger.info("Auto-seeded demo data")
+        if count == 0:
+            if AUTO_SEED_DEMO_DATA:
+                await seed_data()
+                logger.info("Auto-seeded demo data")
+            else:
+                await _seed_clean_core_system()
+                logger.info("Auto-seeded clean core system logins and standard classes")
         elif count > 0:
             await _ensure_demo_teacher_profile()
             if AUTO_SEED_DEMO_DATA:
