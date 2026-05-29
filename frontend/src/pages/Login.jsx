@@ -29,10 +29,13 @@ export default function Login() {
     } catch (err) {
       const reason = getApiErrorMessage(err, "Login failed");
       const isInvalidCredentials = err?.response?.status === 401;
+      const isMissingApiRoute = err?.response?.status === 404;
       const isBackendUnreachable = Boolean(err?.request && !err?.response);
       toast.error("Login failed", {
         description: isInvalidCredentials
           ? `${reason}. If this is an AWS demo install, seed the default accounts and try Pass@1234.`
+          : isMissingApiRoute
+            ? `${reason}. Your frontend is pointed at a server that is not serving the backend API. Check REACT_APP_BACKEND_URL or the Nginx /api proxy.`
           : isBackendUnreachable
             ? `${reason}. Check the frontend API URL and whether the backend is running.`
             : reason,

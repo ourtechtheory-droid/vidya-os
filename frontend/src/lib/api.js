@@ -25,6 +25,10 @@ export const getApiErrorMessage = (err, fallback = "Something went wrong") => {
       .join(", ");
   }
   if (err?.response?.data?.message) return err.response.data.message;
+  if (err?.response?.status === 404) {
+    const path = err?.config?.url || "the requested API route";
+    return `API route not found: ${path}`;
+  }
   if (err?.response?.status) return `Request failed with status ${err.response.status}`;
   if (err?.request) return `Could not reach the backend at ${API_BASE}`;
   return err?.message || fallback;
