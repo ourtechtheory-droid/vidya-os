@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { getApiErrorMessage } from "@/lib/api";
 import { toast } from "sonner";
 import { Eye, EyeOff, ArrowRight, Sparkles } from "lucide-react";
 
@@ -26,7 +27,17 @@ export default function Login() {
       toast.success(`Welcome, ${u.name}`);
       nav("/app");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Login failed");
+      const reason = getApiErrorMessage(err, "Login failed");
+      const isInvalidCredentials = err?.response?.status === 401;
+      const isBackendUnreachable = Boolean(err?.request && !err?.response);
+      toast.error("Login failed", {
+        description: isInvalidCredentials
+          ? `${reason}. If this is an AWS demo install, seed the default accounts and try Pass@1234.`
+          : isBackendUnreachable
+            ? `${reason}. Check the frontend API URL and whether the backend is running.`
+            : reason,
+        duration: 8000,
+      });
     }
   };
 

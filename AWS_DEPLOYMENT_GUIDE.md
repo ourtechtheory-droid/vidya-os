@@ -124,8 +124,9 @@ nano .env
 ```
 Add the server API path (replace with your domain or server IP):
 ```env
-REACT_APP_API_URL=https://yourdomain.com
+REACT_APP_BACKEND_URL=https://yourdomain.com
 ```
+`REACT_APP_API_URL` is also supported for compatibility, and if no frontend API URL is set the app will call `/api` on the same domain. For the Nginx setup below, either `REACT_APP_BACKEND_URL=https://yourdomain.com` or leaving the variable blank will work.
 Now install dependencies and compile the production build:
 ```bash
 yarn install
