@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { ChevronDown, Save, School, Trash2, X } from "lucide-react";
+import { ChevronDown, Edit3, Save, School, Trash2, X } from "lucide-react";
 
 const CONFIRM_SENTENCES = [
   "I understand this class will be deleted from VidyaOS.",
@@ -11,6 +11,8 @@ const CONFIRM_SENTENCES = [
   "Proceed with deleting this class from the admin panel.",
 ];
 
+const RequiredMark = () => <span className="ml-1 text-[#FF5E3A]" aria-hidden="true">*</span>;
+
 export default function Classes() {
   const [classes, setClasses] = useState([]);
   const [grade, setGrade] = useState("");
@@ -19,6 +21,7 @@ export default function Classes() {
   const [subjects, setSubjects] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -58,6 +61,39 @@ export default function Classes() {
       toast.success("Class created");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Unable to create class");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (klass) => {
+    setEditing({
+      id: klass.id,
+      name: klass.name || "",
+      number_of_students: String(klass.number_of_students ?? ""),
+      periods_per_day: String(klass.periods_per_day ?? ""),
+      subjects: (klass.subjects || []).join(", "),
+    });
+  };
+
+  const updateEditing = (key, value) => setEditing((v) => ({ ...v, [key]: value }));
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await api.put(`/classes/${editing.id}`, {
+        name: editing.name.trim(),
+        number_of_students: Number(editing.number_of_students || 0),
+        periods_per_day: Number(editing.periods_per_day || 0),
+        subjects: editing.subjects.split(",").map((s) => s.trim()).filter(Boolean),
+      });
+      setEditing(null);
+      await load();
+      toast.success("Class updated");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Unable to update class");
     } finally {
       setSaving(false);
     }
@@ -106,20 +142,21 @@ export default function Classes() {
           </button>
           {createOpen && (
             <form onSubmit={create} className="px-6 pb-6 space-y-4">
+              <div className="text-xs text-neutral-500"><RequiredMark /> Required fields</div>
               <label className="block text-sm font-medium">
-                Class name
+                Class name<RequiredMark />
                 <input required value={grade} onChange={(e) => setGrade(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Class 8 A" data-testid="class-grade-input" />
               </label>
               <label className="block text-sm font-medium">
-                Number of students
+                Number of students<RequiredMark />
                 <input required type="number" min="0" value={studentCount} onChange={(e) => setStudentCount(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="40" />
               </label>
               <label className="block text-sm font-medium">
-                Periods per day
+                Periods per day<RequiredMark />
                 <input required type="number" min="1" value={periods} onChange={(e) => setPeriods(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="8" />
               </label>
               <label className="block text-sm font-medium">
-                Subjects
+                Subjects<RequiredMark />
                 <textarea required value={subjects} onChange={(e) => setSubjects(e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm resize-none" rows={3} placeholder="English, Hindi, Telugu, Maths, Science, Social" />
               </label>
               <button type="submit" disabled={saving} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60" data-testid="create-class-button">
@@ -132,36 +169,84 @@ export default function Classes() {
         <div className="card-soft p-6 lg:col-span-2">
           <div className="label-eyebrow">Available classes</div>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {classes.map((c) => (
-              <div key={c.id} className="rounded-xl border border-black/5 p-4 bg-white">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-[#FFF3F0] text-[#FF5E3A] grid place-items-center"><School className="w-4 h-4" /></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium">{c.name}</div>
-                    <div className="text-xs text-neutral-500">Class {c.grade}{c.section ? ` - Section ${c.section}` : ""}</div>
-                    <div className="mt-2 text-xs text-neutral-600">
-                      Class teacher: <span className="font-medium text-[#0A1128]">{c.class_teacher?.name || "Not assigned"}</span>
+            {classes.map((c) => {
+              const capacity = Number(c.number_of_students || 0);
+              const studentTotal = c.students_count || 0;
+              return (
+                <div key={c.id} className="rounded-xl border border-black/5 p-4 bg-white">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[#FFF3F0] text-[#FF5E3A] grid place-items-center"><School className="w-4 h-4" /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium">{c.name}</div>
+                      <div className="text-xs text-neutral-500">Class {c.grade}{c.section ? ` - Section ${c.section}` : ""}</div>
+                      <div className="mt-2 text-xs text-neutral-600">
+                        Class teacher: <span className="font-medium text-[#0A1128]">{c.class_teacher?.name || "Not assigned"}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-600">
+                        Students: <span className="font-medium text-[#0A1128]">{studentTotal}{capacity > 0 ? `/${capacity}` : ""}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-600">
+                        Periods: <span className="font-medium text-[#0A1128]">{c.periods_per_day || "-"}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {(c.subjects || []).slice(0, 4).map((subject) => <span key={subject} className="px-2 py-0.5 rounded-full bg-black/[0.04] text-[11px]">{subject}</span>)}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-neutral-600">
-                      Students: <span className="font-medium text-[#0A1128]">{c.students_count || 0}/20</span>
-                    </div>
-                    <div className="mt-1 text-xs text-neutral-600">
-                      Periods: <span className="font-medium text-[#0A1128]">{c.periods_per_day || "-"}</span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(c.subjects || []).slice(0, 4).map((subject) => <span key={subject} className="px-2 py-0.5 rounded-full bg-black/[0.04] text-[11px]">{subject}</span>)}
+                    <div className="flex shrink-0 gap-1">
+                      <button type="button" onClick={() => startEdit(c)} className="p-2 rounded-lg text-neutral-400 hover:text-[#0A1128] hover:bg-black/5" aria-label={`edit ${c.name}`} data-testid={`edit-class-${c.id}`}>
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => requestDelete(c)} className="p-2 rounded-lg text-neutral-400 hover:text-[#FF5E3A] hover:bg-[#FFF3F0]" aria-label={`delete ${c.name}`} data-testid={`delete-class-${c.id}`}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  <button onClick={() => requestDelete(c)} className="p-2 rounded-lg text-neutral-400 hover:text-[#FF5E3A] hover:bg-[#FFF3F0]" aria-label={`delete ${c.name}`} data-testid={`delete-class-${c.id}`}>
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {classes.length === 0 && <div className="text-sm text-neutral-500">No classes created yet.</div>}
           </div>
         </div>
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setEditing(null)}>
+          <form onSubmit={saveEdit} onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="label-eyebrow">Edit class</div>
+                <h3 className="font-display text-2xl font-semibold mt-1">{editing.name}</h3>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-black/5" aria-label="close"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="text-xs text-neutral-500"><RequiredMark /> Required fields</div>
+            <label className="block text-sm font-medium">
+              Class name<RequiredMark />
+              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Class 8 A" />
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-sm font-medium">
+                Number of students<RequiredMark />
+                <input required type="number" min="0" value={editing.number_of_students} onChange={(e) => updateEditing("number_of_students", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="40" />
+              </label>
+              <label className="block text-sm font-medium">
+                Periods per day<RequiredMark />
+                <input required type="number" min="1" value={editing.periods_per_day} onChange={(e) => updateEditing("periods_per_day", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="8" />
+              </label>
+            </div>
+            <label className="block text-sm font-medium">
+              Subjects<RequiredMark />
+              <textarea required value={editing.subjects} onChange={(e) => updateEditing("subjects", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm resize-none" rows={3} placeholder="English, Hindi, Telugu, Maths, Science, Social" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(null)} className="btn-ghost text-sm py-2.5">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-primary text-sm py-2.5 disabled:opacity-60">
+                <Save className="w-4 h-4" /> {saving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setDeleteTarget(null)}>

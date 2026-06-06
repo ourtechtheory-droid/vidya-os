@@ -123,6 +123,13 @@ class ClassCreate(BaseModel):
     subjects: List[str] = Field(default_factory=list)
 
 
+class ClassUpdate(BaseModel):
+    name: Optional[str] = None
+    number_of_students: Optional[int] = None
+    periods_per_day: Optional[int] = None
+    subjects: Optional[List[str]] = None
+
+
 class ClassDeleteConfirm(BaseModel):
     confirmation_sentence: str
 
@@ -131,7 +138,7 @@ class TeacherCreate(BaseModel):
     name: str
     phone_number: str
     gender: Literal["M", "F", "O"] = "M"
-    assigned_class_id: str
+    assigned_class_id: Optional[str] = None
     core_subject: str
     profile_image: Optional[str] = None
 
@@ -206,6 +213,29 @@ class CircularCreate(BaseModel):
     title: str
     body: str
     audience: Literal["all", "parents", "teachers", "students"] = "all"
+
+
+class HomeworkCreate(BaseModel):
+    title: str
+    subject: str
+    description: str
+    class_id: Optional[str] = None
+    assigned_date: Optional[str] = None
+    due_date: Optional[str] = None
+
+
+class HelpIssueCreate(BaseModel):
+    module: str
+    category: Literal["website_change", "mistake", "bug", "access", "other"] = "mistake"
+    priority: Literal["low", "medium", "high"] = "medium"
+    title: str
+    description: str
+    page_url: Optional[str] = None
+
+
+class HelpIssueReview(BaseModel):
+    status: Literal["open", "in_progress", "resolved", "closed"]
+    response: Optional[str] = None
 
 
 class AIChatRequest(BaseModel):
@@ -419,6 +449,72 @@ def _temp_password(length: int = 10) -> str:
 def _slug(text: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", ".", text.lower()).strip(".")
     return cleaned or "teacher"
+
+
+def _help_issue_destination(role: str) -> str:
+    if role in ("parent", "student", "teacher"):
+        return "school_admin"
+    if role == "school_admin":
+        return "super_admin"
+    return "super_admin"
+
+
+def _school_admin_help_issue_filter(user: Dict[str, Any]) -> Dict[str, Any]:
+    q = {"assigned_to_role": "school_admin"}
+    if user.get("school_id"):
+        q["school_id"] = user["school_id"]
+    return q
+
+
+def _help_issue_scope(user: Dict[str, Any]) -> Dict[str, Any]:
+    role = user["role"]
+    if role == "super_admin":
+        return {}
+    if role == "school_admin":
+        return {"$or": [_school_admin_help_issue_filter(user), {"created_by": user["id"]}]}
+    return {"created_by": user["id"]}
+
+
+def _normalize_email(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized or None
+
+
+def _parent_name_from_student(student_name: str) -> str:
+    first_name = (student_name or "Student").strip().split(" ")[0]
+    return f"{first_name}'s Parent"
+
+
+async def _ensure_parent_user(parent_email: str, student_name: str, school_id: str, parent_phone: Optional[str] = None) -> Dict[str, Any]:
+    existing = await db.users.find_one({"email": parent_email}, {"_id": 0})
+    if existing:
+        if existing.get("role") != "parent":
+            raise HTTPException(400, f"{parent_email} is already used by a {existing.get('role')} account")
+        update: Dict[str, Any] = {}
+        if parent_phone:
+            update["meta.phone_number"] = parent_phone
+        if school_id and not existing.get("school_id"):
+            update["school_id"] = school_id
+        if update:
+            await db.users.update_one({"id": existing["id"]}, {"$set": update})
+        return {"email": parent_email, "created": False}
+
+    password = "Pass@1234"
+    parent_user = {
+        "id": str(uuid.uuid4()),
+        "email": parent_email,
+        "password": _hash_pwd(password),
+        "name": _parent_name_from_student(student_name),
+        "role": "parent",
+        "school_id": school_id,
+        "avatar": None,
+        "meta": {"phone_number": parent_phone} if parent_phone else {},
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(parent_user)
+    return {"email": parent_email, "created": True, "password": password}
 
 
 async def _teacher_profile_for_user(user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -962,6 +1058,18 @@ async def list_classes(unassigned_only: bool = False, user=Depends(get_current_u
     profile = await _teacher_profile_for_user(user)
     if profile:
         return await _classes_with_summary({"id": profile.get("assigned_class_id", "")})
+    if user["role"] == "parent":
+        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0, "class_id": 1}).to_list(50)
+        class_ids = sorted({k.get("class_id") for k in kids if k.get("class_id")})
+        if not class_ids:
+            return []
+        return await _classes_with_summary({"id": {"$in": class_ids}})
+    if user["role"] == "student":
+        sid = user.get("meta", {}).get("student_id")
+        student = await db.students.find_one({"id": sid}, {"_id": 0, "class_id": 1}) if sid else None
+        if not student or not student.get("class_id"):
+            return []
+        return await _classes_with_summary({"id": student["class_id"]})
     classes = await _classes_with_summary({})
     if unassigned_only:
         classes = [c for c in classes if not c.get("class_teacher")]
@@ -995,6 +1103,44 @@ async def create_class(body: ClassCreate, user=Depends(require_roles("super_admi
     return {k: v for k, v in c.items() if k != "_id"}
 
 
+@api.put("/classes/{class_id}")
+async def update_class(class_id: str, body: ClassUpdate, user=Depends(require_roles("super_admin", "school_admin"))):
+    existing = await db.classes.find_one({"id": class_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Class not found")
+
+    update_data: Dict[str, Any] = {}
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "Class name is required")
+        update_data["name"] = name
+
+    if body.number_of_students is not None:
+        if body.number_of_students < 0:
+            raise HTTPException(400, "Number of students cannot be negative")
+        update_data["number_of_students"] = body.number_of_students
+
+    if body.periods_per_day is not None:
+        if body.periods_per_day < 1:
+            raise HTTPException(400, "Periods per day must be at least 1")
+        update_data["periods_per_day"] = body.periods_per_day
+
+    if body.subjects is not None:
+        subjects = [s.strip() for s in body.subjects if s.strip()]
+        if not subjects:
+            raise HTTPException(400, "At least one subject is required")
+        update_data["subjects"] = subjects
+
+    if not update_data:
+        return {"ok": True}
+
+    update_data["updated_at"] = now_iso()
+    await db.classes.update_one({"id": class_id}, {"$set": update_data})
+    updated = await _classes_with_summary({"id": class_id})
+    return updated[0] if updated else {"ok": True}
+
+
 @api.delete("/classes/{class_id}")
 async def delete_class(class_id: str, body: ClassDeleteConfirm, user=Depends(require_roles("super_admin", "school_admin"))):
     if body.confirmation_sentence not in CLASS_DELETE_CONFIRMATIONS:
@@ -1013,8 +1159,8 @@ async def list_teachers(user=Depends(require_roles("super_admin", "school_admin"
     out = []
     for t in teachers:
         class_id = t.get("assigned_class_id")
-        students_count = await db.students.count_documents({"class_id": class_id})
-        attendance = await db.attendance.find({"class_id": class_id}, {"_id": 0}).to_list(5000)
+        students_count = await db.students.count_documents({"class_id": class_id}) if class_id else 0
+        attendance = await db.attendance.find({"class_id": class_id}, {"_id": 0}).to_list(5000) if class_id else []
         total = len(attendance)
         present = sum(1 for a in attendance if a.get("status") == "present")
         out.append({
@@ -1029,12 +1175,14 @@ async def list_teachers(user=Depends(require_roles("super_admin", "school_admin"
 
 @api.post("/teachers")
 async def create_teacher(body: TeacherCreate, user=Depends(require_roles("super_admin", "school_admin"))):
-    assigned_class = await db.classes.find_one({"id": body.assigned_class_id}, {"_id": 0})
-    if not assigned_class:
-        raise HTTPException(404, "Assigned class not found")
-    existing_teacher = await db.teacher_profiles.find_one({"assigned_class_id": body.assigned_class_id}, {"_id": 0})
-    if existing_teacher:
-        raise HTTPException(400, "This class already has an assigned teacher")
+    assigned_class_id = (body.assigned_class_id or "").strip() or None
+    if assigned_class_id:
+        assigned_class = await db.classes.find_one({"id": assigned_class_id}, {"_id": 0})
+        if not assigned_class:
+            raise HTTPException(404, "Assigned class not found")
+        existing_teacher = await db.teacher_profiles.find_one({"assigned_class_id": assigned_class_id}, {"_id": 0})
+        if existing_teacher:
+            raise HTTPException(400, "This class already has an assigned teacher")
 
     base = _slug(body.name)
     domain = "vidyaos.teacher"
@@ -1057,7 +1205,7 @@ async def create_teacher(body: TeacherCreate, user=Depends(require_roles("super_
         "meta": {
             "phone_number": body.phone_number,
             "gender": body.gender,
-            "assigned_class_id": body.assigned_class_id,
+            "assigned_class_id": assigned_class_id,
             "core_subject": body.core_subject,
         },
         "created_at": now_iso(),
@@ -1069,7 +1217,7 @@ async def create_teacher(body: TeacherCreate, user=Depends(require_roles("super_
         "name": body.name,
         "phone_number": body.phone_number,
         "gender": body.gender,
-        "assigned_class_id": body.assigned_class_id,
+        "assigned_class_id": assigned_class_id,
         "core_subject": body.core_subject,
         "profile_image": body.profile_image,
         "created_by": user["id"],
@@ -1096,15 +1244,18 @@ async def update_teacher(teacher_id: str, body: TeacherUpdate, user=Depends(requ
         return {"ok": True}
 
     if "assigned_class_id" in update_data:
-        assigned_class = await db.classes.find_one({"id": update_data["assigned_class_id"]}, {"_id": 0})
-        if not assigned_class:
-            raise HTTPException(404, "Assigned class not found")
-        conflict = await db.teacher_profiles.find_one({
-            "assigned_class_id": update_data["assigned_class_id"],
-            "id": {"$ne": teacher_id},
-        }, {"_id": 0})
-        if conflict:
-            raise HTTPException(400, "This class already has an assigned teacher")
+        assigned_class_id = (update_data.get("assigned_class_id") or "").strip() or None
+        update_data["assigned_class_id"] = assigned_class_id
+        if assigned_class_id:
+            assigned_class = await db.classes.find_one({"id": assigned_class_id}, {"_id": 0})
+            if not assigned_class:
+                raise HTTPException(404, "Assigned class not found")
+            conflict = await db.teacher_profiles.find_one({
+                "assigned_class_id": assigned_class_id,
+                "id": {"$ne": teacher_id},
+            }, {"_id": 0})
+            if conflict:
+                raise HTTPException(400, "This class already has an assigned teacher")
         
     await db.teacher_profiles.update_one({"id": teacher_id}, {"$set": update_data})
     
@@ -1133,17 +1284,18 @@ async def delete_teacher(teacher_id: str, user=Depends(require_roles("super_admi
 
 
 @api.post("/students")
-async def create_student(body: StudentCreate, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+async def create_student(body: StudentCreate, user=Depends(require_roles("super_admin", "school_admin"))):
     s = body.model_dump()
     
     # Extract login generation options
     student_email = s.pop("student_email", None)
     password = s.pop("password", None)
     create_login = s.pop("create_login", False)
+    parent_email = _normalize_email(s.get("parent_email"))
+    if not parent_email:
+        raise HTTPException(400, "Parent email is required so this student appears in the parent dashboard")
+    s["parent_email"] = parent_email
     
-    assigned_profile = await _teacher_profile_for_user(user)
-    if assigned_profile and s["class_id"] != assigned_profile.get("assigned_class_id"):
-        raise HTTPException(403, "Teachers can add students only to their assigned class")
     cls = await db.classes.find_one({"id": s["class_id"]}, {"_id": 0})
     if not cls:
         raise HTTPException(404, "Class not found")
@@ -1155,11 +1307,13 @@ async def create_student(body: StudentCreate, user=Depends(require_roles("super_
     s["school_id"] = user.get("school_id", "default-school")
     s["created_by"] = user["id"]
     s["created_at"] = now_iso()
+    parent_link = await _ensure_parent_user(parent_email, s["name"], s["school_id"], s.get("parent_phone"))
     
     if create_login:
         if not student_email:
             first_name = s["name"].split(" ")[0].lower()
             student_email = f"std.{s['roll_no']}.{first_name}@aischool.io"
+        student_email = _normalize_email(student_email)
         if not password:
             password = "Pass@1234"
             
@@ -1180,13 +1334,16 @@ async def create_student(body: StudentCreate, user=Depends(require_roles("super_
         })
         s["student_email"] = student_email
         s["password_hint"] = password
+    s["parent_login_created"] = parent_link.get("created", False)
+    if parent_link.get("password"):
+        s["parent_password_hint"] = parent_link["password"]
         
     await db.students.insert_one(s)
     return {k: v for k, v in s.items() if k != "_id"}
 
 
 @api.get("/students")
-async def list_students(class_id: Optional[str] = None, skip: int = 0, limit: int = 100, user=Depends(get_current_user)):
+async def list_students(class_id: Optional[str] = None, skip: int = 0, limit: int = 1000, user=Depends(get_current_user)):
     q: Dict[str, Any] = {}
     if class_id:
         q["class_id"] = class_id
@@ -1198,19 +1355,15 @@ async def list_students(class_id: Optional[str] = None, skip: int = 0, limit: in
         q["parent_email"] = user["email"]
     if user["role"] == "student":
         q["id"] = user.get("meta", {}).get("student_id", "")
-    return await db.students.find(q, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
+    safe_limit = min(max(limit, 1), 2000)
+    return await db.students.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(safe_limit).to_list(safe_limit)
 
 
 @api.put("/students/{student_id}")
-async def update_student(student_id: str, body: StudentUpdate, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+async def update_student(student_id: str, body: StudentUpdate, user=Depends(require_roles("super_admin", "school_admin"))):
     student = await db.students.find_one({"id": student_id})
     if not student:
         raise HTTPException(404, "Student not found")
-    assigned_profile = await _teacher_profile_for_user(user)
-    if assigned_profile:
-        assigned_class_id = assigned_profile.get("assigned_class_id")
-        if student.get("class_id") != assigned_class_id:
-            raise HTTPException(403, "Teachers can edit students only in their assigned class")
         
     update_data = {k: v for k, v in body.model_dump().items() if v is not None}
     if not update_data:
@@ -1219,9 +1372,12 @@ async def update_student(student_id: str, body: StudentUpdate, user=Depends(requ
     student_email = update_data.pop("student_email", None)
     password = update_data.pop("password", None)
     create_login = update_data.pop("create_login", None)
+    if "parent_email" in update_data:
+        parent_email = _normalize_email(update_data.get("parent_email"))
+        if not parent_email:
+            raise HTTPException(400, "Parent email is required so this student appears in the parent dashboard")
+        update_data["parent_email"] = parent_email
     
-    if assigned_profile and update_data.get("class_id") and update_data["class_id"] != assigned_profile.get("assigned_class_id"):
-        raise HTTPException(403, "Teachers cannot move students out of their assigned class")
     if update_data.get("class_id"):
         cls = await db.classes.find_one({"id": update_data["class_id"]}, {"_id": 0})
         if not cls:
@@ -1233,6 +1389,7 @@ async def update_student(student_id: str, body: StudentUpdate, user=Depends(requ
         if not student_email:
             first_name = update_data.get("name", student["name"]).split(" ")[0].lower()
             student_email = f"std.{update_data.get('roll_no', student['roll_no'])}.{first_name}@aischool.io"
+        student_email = _normalize_email(student_email)
         if not password:
             password = "Pass@1234"
             
@@ -1261,6 +1418,18 @@ async def update_student(student_id: str, body: StudentUpdate, user=Depends(requ
         update_data["student_email"] = student_email
         update_data["password_hint"] = password
 
+    if update_data.get("parent_email"):
+        school_id = update_data.get("school_id") or student.get("school_id", "default-school")
+        parent_link = await _ensure_parent_user(
+            update_data["parent_email"],
+            update_data.get("name", student["name"]),
+            school_id,
+            update_data.get("parent_phone", student.get("parent_phone")),
+        )
+        update_data["parent_login_created"] = parent_link.get("created", False)
+        if parent_link.get("password"):
+            update_data["parent_password_hint"] = parent_link["password"]
+
     if user["role"] in ("super_admin", "school_admin"):
         update_data["admin_edited"] = True
         update_data["admin_edited_by"] = user["name"]
@@ -1271,13 +1440,10 @@ async def update_student(student_id: str, body: StudentUpdate, user=Depends(requ
 
 
 @api.delete("/students/{student_id}")
-async def delete_student(student_id: str, user=Depends(require_roles("super_admin", "school_admin", "teacher"))):
+async def delete_student(student_id: str, user=Depends(require_roles("super_admin", "school_admin"))):
     student = await db.students.find_one({"id": student_id}, {"_id": 0})
     if not student:
         raise HTTPException(404, "Student not found")
-    assigned_profile = await _teacher_profile_for_user(user)
-    if assigned_profile and student.get("class_id") != assigned_profile.get("assigned_class_id"):
-        raise HTTPException(403, "Teachers can delete students only in their assigned class")
     await db.students.delete_one({"id": student_id})
     await db.attendance.delete_many({"student_id": student_id})
     await db.marks.delete_many({"student_id": student_id})
@@ -1290,6 +1456,15 @@ async def get_student(student_id: str, user=Depends(get_current_user)):
     s = await db.students.find_one({"id": student_id}, {"_id": 0})
     if not s:
         raise HTTPException(404, "Student not found")
+
+    assigned_profile = await _teacher_profile_for_user(user)
+    if assigned_profile and s.get("class_id") != assigned_profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can view only students in their assigned class")
+    if user["role"] == "parent" and s.get("parent_email") != user["email"]:
+        raise HTTPException(403, "Parents can view only their linked child profiles")
+    if user["role"] == "student" and s.get("id") != user.get("meta", {}).get("student_id"):
+        raise HTTPException(403, "Students can view only their own profile")
+
     # attach attendance summary, marks, fees
     attendance = await db.attendance.find({"student_id": student_id}, {"_id": 0}).to_list(500)
     present = sum(1 for a in attendance if a["status"] == "present")
@@ -1415,6 +1590,25 @@ async def update_exam_status(exam_id: str, body: ExamStatusUpdate, user=Depends(
 @api.post("/marks")
 async def add_mark(body: MarkEntry, user=Depends(require_roles("teacher", "school_admin", "super_admin"))):
     m = body.model_dump()
+    exam = await db.exams.find_one({"id": m["exam_id"]}, {"_id": 0})
+    if not exam:
+        raise HTTPException(404, "Exam not found")
+    student = await db.students.find_one({"id": m["student_id"]}, {"_id": 0})
+    if not student:
+        raise HTTPException(404, "Student not found")
+    if student.get("class_id") != exam.get("class_id"):
+        raise HTTPException(400, "Student does not belong to this exam class")
+    profile = await _teacher_profile_for_user(user)
+    if profile and exam.get("class_id") != profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can update marks only for their assigned class")
+    if profile and student.get("class_id") != profile.get("assigned_class_id"):
+        raise HTTPException(403, "Teachers can update marks only for students in their assigned class")
+    if m["max_marks"] <= 0:
+        raise HTTPException(400, "Maximum marks must be greater than zero")
+    if m["marks"] < 0 or m["marks"] > m["max_marks"]:
+        raise HTTPException(400, "Marks must be between 0 and maximum marks")
+    if m["subject"] not in (exam.get("subjects") or [exam.get("subject")]):
+        raise HTTPException(400, "Subject is not part of this exam")
     m["id"] = str(uuid.uuid4())
     m["created_at"] = now_iso()
     # upsert one per (exam, student, subject)
@@ -1433,7 +1627,20 @@ async def list_marks(student_id: Optional[str] = None, exam_id: Optional[str] = 
         q["exam_id"] = exam_id
         
     # Role-based scoping for security
-    if user["role"] == "student":
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        assigned_class_id = profile.get("assigned_class_id")
+        if exam_id:
+            exam = await db.exams.find_one({"id": exam_id}, {"_id": 0, "class_id": 1})
+            if exam and exam.get("class_id") != assigned_class_id:
+                return []
+        class_student_ids = [
+            s["id"] for s in await db.students.find({"class_id": assigned_class_id}, {"_id": 0, "id": 1}).to_list(None)
+        ]
+        if student_id and student_id not in class_student_ids:
+            return []
+        q["student_id"] = student_id or {"$in": class_student_ids}
+    elif user["role"] == "student":
         sid = user.get("meta", {}).get("student_id")
         if not sid:
             return []
@@ -1532,6 +1739,160 @@ async def delete_circular(circular_id: str, user=Depends(require_roles("school_a
         raise HTTPException(403, "Teachers can only delete their own circulars")
     await db.circulars.delete_one({"id": circular_id})
     return {"ok": True}
+
+
+# =========================================================
+# Homework
+# =========================================================
+@api.post("/homework")
+async def create_homework(body: HomeworkCreate, user=Depends(require_roles("teacher", "school_admin", "super_admin"))):
+    title = body.title.strip()
+    subject = body.subject.strip()
+    description = body.description.strip()
+    if not title:
+        raise HTTPException(400, "Homework title is required")
+    if not subject:
+        raise HTTPException(400, "Subject is required")
+    if not description:
+        raise HTTPException(400, "Homework details are required")
+
+    profile = await _teacher_profile_for_user(user)
+    class_id = profile.get("assigned_class_id") if profile else body.class_id
+    if not class_id:
+        raise HTTPException(400, "Class is required")
+    klass = await db.classes.find_one({"id": class_id}, {"_id": 0})
+    if not klass:
+        raise HTTPException(404, "Class not found")
+
+    assigned_date = (body.assigned_date or now_iso()[:10]).strip()
+    due_date = (body.due_date or assigned_date).strip()
+    homework = {
+        "id": str(uuid.uuid4()),
+        "title": title[:160],
+        "subject": subject[:80],
+        "description": description,
+        "class_id": class_id,
+        "class_name": klass.get("name", class_id),
+        "assigned_date": assigned_date,
+        "due_date": due_date,
+        "created_by": user["id"],
+        "created_by_name": user.get("name"),
+        "created_by_role": user.get("role"),
+        "school_id": user.get("school_id"),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.homework.insert_one(homework)
+    return {k: v for k, v in homework.items() if k != "_id"}
+
+
+@api.get("/homework")
+async def list_homework(
+    assigned_date: Optional[str] = None,
+    class_id: Optional[str] = None,
+    student_id: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    q: Dict[str, Any] = {}
+    if assigned_date:
+        q["assigned_date"] = assigned_date
+
+    profile = await _teacher_profile_for_user(user)
+    if profile:
+        q["class_id"] = profile.get("assigned_class_id", "")
+    elif user["role"] == "student":
+        sid = user.get("meta", {}).get("student_id")
+        student = await db.students.find_one({"id": sid}, {"_id": 0, "class_id": 1}) if sid else None
+        if not student:
+            return []
+        q["class_id"] = student.get("class_id", "")
+    elif user["role"] == "parent":
+        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0, "id": 1, "class_id": 1}).to_list(50)
+        if student_id:
+            child = next((k for k in kids if k.get("id") == student_id), None)
+            if not child:
+                raise HTTPException(403, "This child is not linked to your parent account")
+            q["class_id"] = child.get("class_id", "")
+        else:
+            class_ids = sorted({k.get("class_id") for k in kids if k.get("class_id")})
+            if not class_ids:
+                return []
+            q["class_id"] = {"$in": class_ids}
+    elif class_id:
+        q["class_id"] = class_id
+
+    return await db.homework.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+
+# =========================================================
+# Help Me / Issue Escalations
+# =========================================================
+@api.post("/help-issues")
+async def create_help_issue(body: HelpIssueCreate, user=Depends(get_current_user)):
+    title = body.title.strip()
+    description = body.description.strip()
+    module = body.module.strip()
+    if not title:
+        raise HTTPException(400, "Issue title is required")
+    if not description:
+        raise HTTPException(400, "Issue description is required")
+    if not module:
+        raise HTTPException(400, "Module is required")
+
+    issue = {
+        "id": str(uuid.uuid4()),
+        "module": module[:80],
+        "category": body.category,
+        "priority": body.priority,
+        "title": title[:160],
+        "description": description,
+        "page_url": (body.page_url or "").strip()[:500],
+        "status": "open",
+        "created_by": user["id"],
+        "created_by_name": user.get("name"),
+        "created_by_email": user.get("email"),
+        "created_by_role": user.get("role"),
+        "school_id": user.get("school_id"),
+        "assigned_to_role": _help_issue_destination(user["role"]),
+        "response": None,
+        "responded_by": None,
+        "responded_by_name": None,
+        "responded_at": None,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.help_issues.insert_one(issue)
+    return {k: v for k, v in issue.items() if k != "_id"}
+
+
+@api.get("/help-issues")
+async def list_help_issues(status_filter: Optional[str] = None, user=Depends(get_current_user)):
+    q = _help_issue_scope(user)
+    if status_filter:
+        q = {"$and": [q, {"status": status_filter}]} if q else {"status": status_filter}
+    return await db.help_issues.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api.patch("/help-issues/{issue_id}")
+async def review_help_issue(issue_id: str, body: HelpIssueReview, user=Depends(require_roles("school_admin", "super_admin"))):
+    issue = await db.help_issues.find_one({"id": issue_id}, {"_id": 0})
+    if not issue:
+        raise HTTPException(404, "Help issue not found")
+    if user["role"] == "school_admin" and issue.get("assigned_to_role") != "school_admin":
+        raise HTTPException(403, "School admins can only review parent, student, and teacher issues")
+    if user["role"] == "school_admin" and user.get("school_id") and issue.get("school_id") != user.get("school_id"):
+        raise HTTPException(403, "School admins can only review issues from their school")
+
+    update = {
+        "status": body.status,
+        "response": (body.response or "").strip() or issue.get("response"),
+        "responded_by": user["id"],
+        "responded_by_name": user.get("name"),
+        "responded_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.help_issues.update_one({"id": issue_id}, {"$set": update})
+    return await db.help_issues.find_one({"id": issue_id}, {"_id": 0})
 
 
 # =========================================================
@@ -1665,7 +2026,7 @@ async def review_leave(leave_id: str, body: LeaveReview, user=Depends(require_ro
 # Dashboard stats
 # =========================================================
 @api.get("/dashboard/stats")
-async def dashboard_stats(user=Depends(get_current_user)):
+async def dashboard_stats(student_id: Optional[str] = None, user=Depends(get_current_user)):
     profile = await _teacher_profile_for_user(user)
     
     # Role-based query scoping
@@ -1673,14 +2034,18 @@ async def dashboard_stats(user=Depends(get_current_user)):
     fee_query = {}
     att_query = {}
     mark_query = {}
+    class_query = {}
     
     student_profile = None
     parent_kids = []
+    selected_parent_student_id = None
+    class_student_ids: List[str] = []
     cumulative_attendance_rate = 0
     
     if profile:
         class_id = profile.get("assigned_class_id")
         student_query = {"class_id": class_id}
+        class_query = {"id": class_id}
         class_student_ids = [s["id"] for s in await db.students.find({"class_id": class_id}, {"_id": 0, "id": 1}).to_list(None)]
         fee_query = {"student_id": {"$in": class_student_ids}}
         att_query = {"class_id": class_id}
@@ -1695,6 +2060,7 @@ async def dashboard_stats(user=Depends(get_current_user)):
         if sid:
             student_profile = await db.students.find_one({"id": sid}, {"_id": 0})
             if student_profile:
+                class_query = {"id": student_profile.get("class_id", "")}
                 klass = await db.classes.find_one({"id": student_profile["class_id"]}, {"_id": 0})
                 student_profile["class_name"] = klass["name"] if klass else student_profile["class_id"]
                 teacher_prof = await db.teacher_profiles.find_one({"assigned_class_id": student_profile["class_id"]}, {"_id": 0})
@@ -1705,12 +2071,25 @@ async def dashboard_stats(user=Depends(get_current_user)):
             cumulative_attendance_rate = round((present_days / total_days) * 100, 1) if total_days > 0 else 0
             
     elif user["role"] == "parent":
-        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0}).to_list(10)
+        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0}).to_list(50)
         kid_ids = [k["id"] for k in kids]
-        student_query = {"id": {"$in": kid_ids}}
-        fee_query = {"student_id": {"$in": kid_ids}}
-        att_query = {"student_id": {"$in": kid_ids}}
-        mark_query = {"student_id": {"$in": kid_ids}}
+        if student_id:
+            if student_id not in kid_ids:
+                raise HTTPException(403, "This child is not linked to your parent account")
+            selected_parent_student_id = student_id
+            selected_child = next((k for k in kids if k.get("id") == student_id), None)
+            student_query = {"id": student_id}
+            class_query = {"id": selected_child.get("class_id", "")} if selected_child else {"id": ""}
+            fee_query = {"student_id": student_id}
+            att_query = {"student_id": student_id}
+            mark_query = {"student_id": student_id}
+        else:
+            parent_class_ids = sorted({k.get("class_id") for k in kids if k.get("class_id")})
+            student_query = {"id": {"$in": kid_ids}}
+            class_query = {"id": {"$in": parent_class_ids}}
+            fee_query = {"student_id": {"$in": kid_ids}}
+            att_query = {"student_id": {"$in": kid_ids}}
+            mark_query = {"student_id": {"$in": kid_ids}}
         
         for k in kids:
             klass = await db.classes.find_one({"id": k["class_id"]}, {"_id": 0})
@@ -1739,7 +2118,7 @@ async def dashboard_stats(user=Depends(get_current_user)):
 
     students_count = await db.students.count_documents(student_query)
     teachers_count = await db.users.count_documents({"role": "teacher"})
-    classes_count = await db.classes.count_documents({})
+    classes_count = await db.classes.count_documents(class_query)
     
     fees_paid = await db.fees.count_documents({**fee_query, "status": "paid"})
     fees_pending = await db.fees.count_documents({**fee_query, "status": "pending"})
@@ -1815,15 +2194,44 @@ async def dashboard_stats(user=Depends(get_current_user)):
     merit_percentage = round(sum(merit_percentages) / len(merit_percentages), 1) if merit_percentages else 0
 
     teacher_context = None
+    teacher_marks_desk = []
     profile = await _teacher_profile_for_user(user)
     if profile:
-        assigned_class = await db.classes.find_one({"id": profile.get("assigned_class_id")}, {"_id": 0})
+        assigned_class_id = profile.get("assigned_class_id")
+        assigned_class = await db.classes.find_one({"id": assigned_class_id}, {"_id": 0})
         teacher_context = {
             "name": profile.get("name") or user.get("name"),
             "core_subject": profile.get("core_subject"),
             "assigned_class": assigned_class,
             "profile_image": profile.get("profile_image"),
         }
+        if not class_student_ids:
+            class_student_ids = [
+                s["id"] for s in await db.students.find({"class_id": assigned_class_id}, {"_id": 0, "id": 1}).to_list(None)
+            ]
+        teacher_exams = await db.exams.find({"class_id": assigned_class_id}, {"_id": 0}).sort("exam_date", -1).to_list(6)
+        for exam in teacher_exams:
+            subjects = [s for s in (exam.get("subjects") or [exam.get("subject")]) if s]
+            expected_marks = len(class_student_ids) * max(len(subjects), 1)
+            marks_entered = await db.marks.count_documents({
+                "exam_id": exam["id"],
+                "student_id": {"$in": class_student_ids},
+            })
+            teacher_marks_desk.append({
+                "id": exam["id"],
+                "name": exam.get("name"),
+                "subject": exam.get("subject"),
+                "subjects": subjects,
+                "class_id": exam.get("class_id"),
+                "class_name": assigned_class.get("name") if assigned_class else exam.get("class_id"),
+                "exam_date": exam.get("exam_date") or exam.get("start_date"),
+                "time": exam.get("time"),
+                "status": exam.get("status", "scheduled"),
+                "students_count": len(class_student_ids),
+                "expected_marks": expected_marks,
+                "marks_entered": min(marks_entered, expected_marks),
+                "pending_marks": max(expected_marks - marks_entered, 0),
+            })
 
     exam_query: Dict[str, Any] = {}
     if user["role"] == "student":
@@ -1831,8 +2239,12 @@ async def dashboard_stats(user=Depends(get_current_user)):
         student = await db.students.find_one({"id": sid}, {"_id": 0}) if sid else None
         exam_query["class_id"] = student.get("class_id", "") if student else ""
     elif user["role"] == "parent":
-        kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0}).to_list(50)
-        exam_query["class_id"] = {"$in": [k["class_id"] for k in kids]}
+        if selected_parent_student_id:
+            selected_child = next((k for k in parent_kids if k.get("id") == selected_parent_student_id), None)
+            exam_query["class_id"] = selected_child.get("class_id", "") if selected_child else ""
+        else:
+            kids = await db.students.find({"parent_email": user["email"]}, {"_id": 0}).to_list(50)
+            exam_query["class_id"] = {"$in": [k["class_id"] for k in kids]}
     elif profile:
         exam_query["class_id"] = profile.get("assigned_class_id", "")
     recent_exams = await db.exams.find(exam_query, {"_id": 0}).sort("exam_date", -1).to_list(5)
@@ -1854,9 +2266,11 @@ async def dashboard_stats(user=Depends(get_current_user)):
         "attendance_trend": attendance_trend,
         "subject_performance": subj,
         "teacher_context": teacher_context,
+        "teacher_marks_desk": teacher_marks_desk,
         "recent_exams": recent_exams,
         "student_profile": student_profile,
         "parent_kids": parent_kids,
+        "selected_parent_student_id": selected_parent_student_id,
         "cumulative_attendance_rate": cumulative_attendance_rate,
     }
 
@@ -3025,7 +3439,7 @@ async def ai_parent(body: AIChatRequest, user=Depends(get_current_user)):
 @api.post("/ai/insights")
 async def ai_insights(payload: Dict[str, Any], user=Depends(require_roles("school_admin", "super_admin", "teacher"))):
     # generates an executive summary from current school stats
-    stats = await dashboard_stats(user)
+    stats = await dashboard_stats(user=user)
     sys_msg = "You are an Indian school operations analyst. Produce a crisp executive intelligence brief in 5 bullet points + 1 risk flag. Use plain English suitable for a principal."
     prompt = f"Analyze this school data JSON and produce insights:\n{stats}"
     out = await ai_complete(sys_msg, prompt, session_id=f"insights-{user['id']}")
@@ -3367,6 +3781,26 @@ async def list_notifications(user=Depends(get_current_user)):
                         "time": l.get("updated_at") or now_iso(),
                         "unread": True
                     })
+
+    # 3. Help Me issues route upward: parent/student/teacher -> admin, admin -> super admin.
+    if user["role"] in ("school_admin", "super_admin"):
+        help_query = {
+            "assigned_to_role": user["role"],
+            "status": {"$in": ["open", "in_progress"]},
+        }
+        if user["role"] == "school_admin" and user.get("school_id"):
+            help_query["school_id"] = user["school_id"]
+        help_issues = await db.help_issues.find(help_query).sort("created_at", -1).to_list(50)
+        for issue in help_issues:
+            title = "Admin Help Escalation" if issue.get("created_by_role") == "school_admin" else "Help Me Issue"
+            alerts.append({
+                "id": f"help-{issue['id']}",
+                "type": "help_issue",
+                "title": title,
+                "message": f"{issue.get('created_by_name')} reported {issue.get('module')}: {issue.get('title')}",
+                "time": issue.get("created_at") or now_iso(),
+                "unread": True
+            })
                     
     # Sort alerts by time descending
     alerts.sort(key=lambda x: x.get("time") or "", reverse=True)
@@ -3490,6 +3924,9 @@ async def _startup():
         await db.users.create_index("email", unique=True)
         await db.students.create_index("id", unique=True)
         await db.teacher_profiles.create_index("user_id", unique=True)
+        await db.homework.create_index([("class_id", 1), ("assigned_date", -1), ("created_at", -1)])
+        await db.help_issues.create_index([("assigned_to_role", 1), ("school_id", 1), ("status", 1), ("created_at", -1)])
+        await db.help_issues.create_index([("created_by", 1), ("created_at", -1)])
         count = await db.users.count_documents({})
         if count == 0:
             if AUTO_SEED_DEMO_DATA:

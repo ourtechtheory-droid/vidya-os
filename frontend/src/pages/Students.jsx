@@ -23,6 +23,8 @@ const emptyStudent = {
   create_login: true,
 };
 
+const RequiredMark = () => <span className="ml-1 text-[#FF5E3A]" aria-hidden="true">*</span>;
+
 export default function Students() {
   const { user } = useAuth();
   const [students, setStudents] = useState([]);
@@ -36,7 +38,7 @@ export default function Students() {
   const [deletingId, setDeletingId] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const canCreate = ["super_admin", "school_admin", "teacher"].includes(user?.role);
+  const canManageStudents = ["super_admin", "school_admin"].includes(user?.role);
   const assignedClassId = user?.role === "teacher" ? user?.meta?.assigned_class_id : null;
 
   const load = async () => {
@@ -47,7 +49,6 @@ export default function Students() {
     const firstClass = assignedClassId || c.data[0]?.id || "";
     setForm((v) => ({ ...v, class_id: v.class_id || firstClass }));
     if (assignedClassId) setClassFilter(assignedClassId);
-    else if (classFilter === "all" && c.data[0]) setClassFilter(c.data[0].id);
     setLoading(false);
   };
 
@@ -79,18 +80,22 @@ export default function Students() {
     e.preventDefault();
     setSaving(true);
     try {
-      const required = new Set(["name", "roll_no", "class_id", "gender", "create_login"]);
+      const required = new Set(["name", "roll_no", "class_id", "gender", "parent_email", "create_login"]);
       const payload = Object.fromEntries(
         Object.entries(form)
           .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
           .filter(([key, value]) => required.has(key) || value)
       );
-      await api.post("/students", payload);
+      const { data } = await api.post("/students", payload);
       const nextClass = assignedClassId || form.class_id;
       setForm({ ...emptyStudent, class_id: nextClass, gender: "M" });
+      setQ("");
+      setClassFilter(assignedClassId || "all");
       setCreateOpen(false);
       await load();
-      toast.success("Student profile and active login credentials created!");
+      toast.success(data?.parent_login_created
+        ? `Student created and parent login linked: ${data.parent_email} / Pass@1234`
+        : "Student created and linked to the parent dashboard");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Unable to create student");
     } finally {
@@ -119,7 +124,7 @@ export default function Students() {
     if (!editing) return;
     setSaving(true);
     try {
-      const required = new Set(["name", "roll_no", "class_id", "gender", "create_login"]);
+      const required = new Set(["name", "roll_no", "class_id", "gender", "parent_email", "create_login"]);
       const payload = Object.fromEntries(
         Object.entries(editing)
           .filter(([key]) => key !== "id")
@@ -173,7 +178,7 @@ export default function Students() {
         </div>
       </div>
 
-      {canCreate && (
+      {canManageStudents && (
         <div className="card-soft overflow-hidden" data-testid="student-create-form">
           <button type="button" onClick={() => setCreateOpen((v) => !v)} className="w-full p-6 flex items-center justify-between text-left">
             <div className="flex items-center gap-3">
@@ -186,17 +191,18 @@ export default function Students() {
             <ChevronDown className={`w-5 h-5 transition ${createOpen ? "rotate-180" : ""}`} />
           </button>
           {createOpen && <form onSubmit={createStudent} className="px-6 pb-6 space-y-4">
+            <div className="text-xs text-neutral-500"><RequiredMark /> Required fields</div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <label className="block text-sm font-medium">
-              Name
+              Name<RequiredMark />
               <input required value={form.name} onChange={(e) => update("name", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Student name" />
             </label>
             <label className="block text-sm font-medium">
-              Roll no
+              Roll no<RequiredMark />
               <input required value={form.roll_no} onChange={(e) => update("roll_no", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="01" />
             </label>
             <label className="block text-sm font-medium">
-              Class
+              Class<RequiredMark />
               <select required value={form.class_id} onChange={(e) => update("class_id", e.target.value)} disabled={!!assignedClassId} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm disabled:opacity-70">
                 {classOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -206,7 +212,7 @@ export default function Students() {
               <input value={form.section} onChange={(e) => update("section", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Optional" />
             </label>
             <label className="block text-sm font-medium">
-              Gender
+              Gender<RequiredMark />
               <select value={form.gender} onChange={(e) => update("gender", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
                 <option value="M">Male</option>
                 <option value="F">Female</option>
@@ -218,8 +224,9 @@ export default function Students() {
               <input type="date" value={form.dob} onChange={(e) => update("dob", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" />
             </label>
             <label className="block text-sm font-medium">
-              Parent email
-              <input type="email" value={form.parent_email} onChange={(e) => update("parent_email", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="parent@example.com" />
+              Parent email<RequiredMark />
+              <input required type="email" value={form.parent_email} onChange={(e) => update("parent_email", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="parent@example.com" />
+              <span className="mt-1 block text-[11px] text-neutral-400">Use the same parent email for siblings so they appear under one parent login.</span>
             </label>
             <label className="block text-sm font-medium">
               Parent phone
@@ -317,11 +324,17 @@ export default function Students() {
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 rounded-full bg-[#FFF3F0] text-[#FF5E3A] text-xs font-medium">{s.house || "-"}</span>
                   </td>
-                  <td className="px-6 py-4 text-neutral-600">{s.parent_email || "-"}</td>
+                  <td className="px-6 py-4 text-neutral-600">
+                    {s.parent_email ? (
+                      s.parent_email
+                    ) : (
+                      <span className="px-2 py-1 rounded-full bg-[#FFF3F0] text-[#FF5E3A] text-xs font-semibold">Not linked</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2">
                       <Link to={`/app/students/${s.id}`} className="text-xs text-[#FF5E3A] font-medium self-center" data-testid={`view-student-${s.roll_no}`}>View</Link>
-                      {canCreate && (
+                      {canManageStudents && (
                         <>
                           <button onClick={() => startEdit(s)} className="p-2 rounded-lg hover:bg-black/5" aria-label={`edit ${s.name}`}><Edit3 className="w-4 h-4" /></button>
                           <button onClick={() => deleteStudent(s)} disabled={deletingId === s.id} className="p-2 rounded-lg text-neutral-400 hover:text-[#FF5E3A] hover:bg-[#FFF3F0] disabled:opacity-50" aria-label={`delete ${s.name}`}><Trash2 className="w-4 h-4" /></button>
@@ -346,9 +359,10 @@ export default function Students() {
               </div>
               <button type="button" onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-black/5" aria-label="close"><X className="w-5 h-5" /></button>
             </div>
+            <div className="text-xs text-neutral-500"><RequiredMark /> Required fields</div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Student name" />
-              <input required value={editing.roll_no} onChange={(e) => updateEditing("roll_no", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Roll no" />
+              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Student name *" />
+              <input required value={editing.roll_no} onChange={(e) => updateEditing("roll_no", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Roll no *" />
               <select required value={editing.class_id} onChange={(e) => updateEditing("class_id", e.target.value)} disabled={!!assignedClassId} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm disabled:opacity-70">
                 {classOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -357,7 +371,7 @@ export default function Students() {
                 <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
               </select>
               <input type="date" value={editing.dob || ""} onChange={(e) => updateEditing("dob", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" />
-              <input type="email" value={editing.parent_email} onChange={(e) => updateEditing("parent_email", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Parent email" />
+              <input required type="email" value={editing.parent_email} onChange={(e) => updateEditing("parent_email", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Parent email *" />
               <input value={editing.parent_phone} onChange={(e) => updateEditing("parent_phone", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Parent phone" />
               <input value={editing.address} onChange={(e) => updateEditing("address", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm xl:col-span-2" placeholder="Address" />
               <input value={editing.house} onChange={(e) => updateEditing("house", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="House" />

@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, Calendar, FileSpreadsheet, Wallet, Megaphone,
   Bot, MessageSquareText, Sparkles, LogOut, Bell, Search, Menu, X, GraduationCap, School,
-  CalendarRange, Send, Award, IdCard
+  CalendarRange, Send, Award, LifeBuoy
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -20,6 +20,7 @@ const ALL_ITEMS = [
   { to: "/app/timetable",         label: "Timetable",          icon: CalendarRange,   roles: ["super_admin","school_admin"] },
   { to: "/app/communication",     label: "Communication",      icon: Send,            roles: ["super_admin","school_admin","teacher"] },
   { to: "/app/certificates",      label: "Certificates",       icon: Award,           roles: ["super_admin","school_admin"] },
+  { to: "/app/help",              label: "Help Me",            icon: LifeBuoy,        roles: ["super_admin","school_admin","teacher","student","parent"] },
   { to: "/app/ai/teacher",        label: "AI Teacher Copilot", icon: Bot,             roles: ["super_admin","school_admin","teacher"] },
   { to: "/app/ai/parent",         label: "AI Saathi",          icon: MessageSquareText,roles: ["super_admin","school_admin","parent","student"] },
   { to: "/app/ai/insights",       label: "AI Insights",        icon: Sparkles,        roles: ["super_admin","school_admin","teacher"] },

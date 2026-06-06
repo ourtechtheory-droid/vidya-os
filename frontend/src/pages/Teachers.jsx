@@ -12,6 +12,8 @@ const emptyForm = {
   profile_image: "",
 };
 
+const RequiredMark = () => <span className="ml-1 text-[#FF5E3A]" aria-hidden="true">*</span>;
+
 export default function Teachers() {
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -27,7 +29,7 @@ export default function Teachers() {
     setTeachers(t.data);
     setClasses(c.data);
     setAvailableClasses(free.data);
-    setForm((v) => ({ ...v, assigned_class_id: free.data.some((klass) => klass.id === v.assigned_class_id) ? v.assigned_class_id : free.data[0]?.id || "" }));
+    setForm((v) => ({ ...v, assigned_class_id: free.data.some((klass) => klass.id === v.assigned_class_id) ? v.assigned_class_id : "" }));
   };
 
   useEffect(() => {
@@ -55,6 +57,7 @@ export default function Teachers() {
       const payload = { ...form, profile_image: form.profile_image || null };
       const { data } = await api.post("/teachers", payload);
       setCredentials(data.credentials);
+      setForm(emptyForm);
       await load();
       toast.success("Teacher registered");
     } catch (err) {
@@ -135,20 +138,21 @@ export default function Teachers() {
             <div className="label-eyebrow">New teacher</div>
             <h3 className="mt-1 font-display text-xl font-semibold">Register Teacher</h3>
           </div>
+          <div className="text-xs text-neutral-500"><RequiredMark /> Required fields</div>
 
           <label className="block text-sm font-medium">
-            Name
+            Name<RequiredMark />
             <input required value={form.name} onChange={(e) => update("name", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Teacher name" />
           </label>
 
           <label className="block text-sm font-medium">
-            Phone number
+            Phone number<RequiredMark />
             <input required value={form.phone_number} onChange={(e) => update("phone_number", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="+91..." />
           </label>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-sm font-medium">
-              Gender
+              Gender<RequiredMark />
               <select value={form.gender} onChange={(e) => update("gender", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
                 <option value="M">Male</option>
                 <option value="F">Female</option>
@@ -156,17 +160,18 @@ export default function Teachers() {
               </select>
             </label>
             <label className="block text-sm font-medium">
-              Core subject
+              Core subject<RequiredMark />
               <input required value={form.core_subject} onChange={(e) => update("core_subject", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Mathematics" />
             </label>
           </div>
 
           <label className="block text-sm font-medium">
             Assigned class
-            <select required value={form.assigned_class_id} onChange={(e) => update("assigned_class_id", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+            <select value={form.assigned_class_id} onChange={(e) => update("assigned_class_id", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+              <option value="">No class assigned</option>
               {availableClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            {availableClasses.length === 0 && <div className="mt-2 text-xs text-[#FF5E3A]">All classes already have assigned teachers.</div>}
+            {availableClasses.length === 0 && <div className="mt-2 text-xs text-neutral-500">All classes already have assigned teachers. You can still register this teacher without a class.</div>}
           </label>
 
           <label className="block text-sm font-medium">
@@ -174,7 +179,7 @@ export default function Teachers() {
             <input value={form.profile_image} onChange={(e) => update("profile_image", e.target.value)} className="mt-2 w-full px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="https://..." />
           </label>
 
-          <button type="submit" disabled={saving || !availableClasses.length} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60">
+          <button type="submit" disabled={saving} className="w-full btn-primary text-sm py-2.5 disabled:opacity-60">
             <Save className="w-4 h-4" /> {saving ? "Registering..." : "Register Teacher"}
           </button>
 
@@ -217,7 +222,7 @@ export default function Teachers() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">{t.assigned_class?.name || t.assigned_class_id || "-"}</td>
+                    <td className="px-6 py-4">{t.assigned_class?.name || t.assigned_class_id || <span className="text-neutral-400">No class assigned</span>}</td>
                     <td className="px-6 py-4">{t.core_subject}</td>
                     <td className="px-6 py-4">{t.students_count || 0}</td>
                     <td className="px-6 py-4">{t.attendance_pct || 0}%</td>
@@ -245,14 +250,16 @@ export default function Teachers() {
               </div>
               <button type="button" onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-black/5" aria-label="close"><X className="w-5 h-5" /></button>
             </div>
+            <div className="text-xs text-neutral-500"><RequiredMark /> Required fields</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Teacher name" />
-              <input required value={editing.phone_number} onChange={(e) => updateEditing("phone_number", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Phone number" />
+              <input required value={editing.name} onChange={(e) => updateEditing("name", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Teacher name *" />
+              <input required value={editing.phone_number} onChange={(e) => updateEditing("phone_number", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Phone number *" />
               <select value={editing.gender} onChange={(e) => updateEditing("gender", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
                 <option value="M">Male</option><option value="F">Female</option><option value="O">Other</option>
               </select>
-              <input required value={editing.core_subject} onChange={(e) => updateEditing("core_subject", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Core subject" />
-              <select required value={editing.assigned_class_id} onChange={(e) => updateEditing("assigned_class_id", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+              <input required value={editing.core_subject} onChange={(e) => updateEditing("core_subject", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Core subject *" />
+              <select value={editing.assigned_class_id} onChange={(e) => updateEditing("assigned_class_id", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm">
+                <option value="">No class assigned</option>
                 {editClassOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <input value={editing.profile_image} onChange={(e) => updateEditing("profile_image", e.target.value)} className="px-3 py-2.5 rounded-lg bg-white border border-black/10 text-sm" placeholder="Profile image URL" />

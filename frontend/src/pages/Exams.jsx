@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { CheckCircle2, ChevronDown, FileSpreadsheet, Plus, Save, Trophy, Star, Sparkles, Award } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useAuth } from "@/context/AuthContext";
+import { useLocation } from "react-router-dom";
 
 const emptyExam = {
   name: "",
@@ -30,6 +31,7 @@ const STATUS_STYLE = {
 
 export default function Exams() {
   const { user } = useAuth();
+  const location = useLocation();
   const [exams, setExams] = useState([]);
   const [classes, setClasses] = useState([]);
   const [marks, setMarks] = useState([]);
@@ -52,6 +54,9 @@ export default function Exams() {
   const isParent = user?.role === "parent";
   const isAudiencePortal = isStudent || isParent;
   const canManage = ["teacher", "school_admin", "super_admin"].includes(user?.role);
+  const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const requestedExamId = query.get("exam_id") || "";
+  const openMarksFromQuery = query.get("marks") === "1";
 
   const load = async () => {
     const [e, m, s, c] = await Promise.all([
@@ -65,6 +70,7 @@ export default function Exams() {
     setMarks(m.data);
     setStudents(s.data);
     setClasses(c.data);
+    const requestedExam = requestedExamId ? e.data.find((ex) => ex.id === requestedExamId) : null;
     
     // Auto-select based on role
     if (isStudent) {
@@ -87,16 +93,18 @@ export default function Exams() {
         setActiveExam(classExams[0]?.id || "");
       }
     } else {
-      setActiveExam(e.data[0]?.id || "");
-      setExamForm((v) => ({ ...v, class_id: v.class_id || c.data[0]?.id || "" }));
-      setSelectedClassId(user?.role === "teacher" ? c.data[0]?.id || "" : "");
+      const defaultClassId = requestedExam?.class_id || (user?.role === "teacher" ? c.data[0]?.id || "" : "");
+      setActiveExam(requestedExam?.id || e.data[0]?.id || "");
+      setExamForm((v) => ({ ...v, class_id: v.class_id || defaultClassId || c.data[0]?.id || "" }));
+      setSelectedClassId(defaultClassId);
+      setShowMarksEntry(openMarksFromQuery && Boolean(requestedExam));
     }
   };
 
   useEffect(() => {
     load().catch(() => toast.error("Unable to load exams"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, requestedExamId, openMarksFromQuery]);
 
   // Handle switching kids in parent view
   const selectKid = (kid) => {
@@ -264,8 +272,8 @@ export default function Exams() {
 
   useEffect(() => {
     setMarkSubject(examSubjects[0] || "");
-    setShowMarksEntry(false);
-  }, [activeExam, examSubjects]);
+    setShowMarksEntry(openMarksFromQuery && Boolean(activeExam));
+  }, [activeExam, examSubjects, openMarksFromQuery]);
 
   return (
     <div className="space-y-6" data-testid="exams-page">
